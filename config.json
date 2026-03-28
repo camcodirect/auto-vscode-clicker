@@ -1,0 +1,10 @@
+{
+    "template_path": "templates/button.png",
+    "scan_interval_ms": 500,
+    "confidence_threshold": 0.8,
+    "click_cooldown_seconds": 3,
+    "monitor_index": 0,
+    "region": null,
+    "grayscale": true,
+    "log_level": "INFO"
+}
