@@ -1,7 +1,11 @@
 """
-VSCode Button Auto-Clicker
+VSCode Button Auto-Clicker / Auto-Confirm
 
-Monitors the screen for a template image (button) and clicks it when found.
+Two modes of operation:
+  - Auto Click:   Monitors screen for a button image and clicks it when found.
+  - Auto Confirm: Monitors screen for a Claude CLI confirmation prompt
+                   ("1. Yes / 2. No"), focuses the console, and sends "1" + Enter.
+
 Runs as a system tray application with right-click menu to control.
 Uses OpenCV template matching with mss for fast screenshots.
 """
@@ -114,6 +118,15 @@ def click_at(x: int, y: int) -> None:
     log.info("Clicked at (%d, %d)", x, y)
 
 
+def confirm_at(x: int, y: int) -> None:
+    """Click the console area to focus it, then type '1' and press Enter."""
+    pyautogui.click(x, y)
+    time.sleep(0.15)  # brief pause to let the window focus
+    pyautogui.typewrite("1", interval=0.03)
+    pyautogui.press("enter")
+    log.info("Sent confirmation '1' + Enter at (%d, %d)", x, y)
+
+
 # ── Tray icon ──────────────────────────────────────────────────────────────
 
 def load_ico_icon() -> PIL.Image.Image | None:
@@ -184,26 +197,183 @@ def show_error(title: str, message: str):
     root.destroy()
 
 
+# ── Settings dialog ───────────────────────────────────────────────────────
+
+def open_settings_dialog(current_cfg: dict, on_save) -> None:
+    """Open a GUI settings window. Calls on_save(new_cfg) when the user clicks Save."""
+    win = tk.Tk()
+    win.title("VSCode Auto-Clicker — Settings")
+    win.resizable(False, False)
+    win.attributes("-topmost", True)
+
+    # Center the window
+    win.update_idletasks()
+    w, h = 460, 480
+    x = (win.winfo_screenwidth() // 2) - (w // 2)
+    y = (win.winfo_screenheight() // 2) - (h // 2)
+    win.geometry(f"{w}x{h}+{x}+{y}")
+
+    pad = {"padx": 10, "pady": 4}
+
+    # ── Mode ──
+    tk.Label(win, text="Mode", font=("Segoe UI", 9, "bold")).grid(
+        row=0, column=0, sticky="w", **pad)
+    mode_var = tk.StringVar(value=current_cfg.get("mode", "auto_click"))
+    mode_frame = tk.Frame(win)
+    mode_frame.grid(row=0, column=1, sticky="w", **pad)
+    tk.Radiobutton(mode_frame, text="Auto Click", variable=mode_var,
+                   value="auto_click").pack(side="left")
+    tk.Radiobutton(mode_frame, text="Auto Confirm", variable=mode_var,
+                   value="auto_confirm").pack(side="left", padx=(10, 0))
+
+    # ── Scan interval ──
+    tk.Label(win, text="Scan Interval (ms)").grid(row=1, column=0, sticky="w", **pad)
+    interval_var = tk.IntVar(value=current_cfg.get("scan_interval_ms", 500))
+    tk.Spinbox(win, from_=100, to=10000, increment=100,
+               textvariable=interval_var, width=10).grid(row=1, column=1, sticky="w", **pad)
+
+    # ── Confidence threshold ──
+    tk.Label(win, text="Confidence Threshold").grid(row=2, column=0, sticky="w", **pad)
+    threshold_var = tk.DoubleVar(value=current_cfg.get("confidence_threshold", 0.8))
+    tk.Spinbox(win, from_=0.1, to=1.0, increment=0.05, format="%.2f",
+               textvariable=threshold_var, width=10).grid(row=2, column=1, sticky="w", **pad)
+
+    # ── Click cooldown ──
+    tk.Label(win, text="Click Cooldown (sec)").grid(row=3, column=0, sticky="w", **pad)
+    click_cd_var = tk.IntVar(value=current_cfg.get("click_cooldown_seconds", 3))
+    tk.Spinbox(win, from_=0, to=60, increment=1,
+               textvariable=click_cd_var, width=10).grid(row=3, column=1, sticky="w", **pad)
+
+    # ── Confirm cooldown ──
+    tk.Label(win, text="Confirm Cooldown (sec)").grid(row=4, column=0, sticky="w", **pad)
+    confirm_cd_var = tk.IntVar(value=current_cfg.get("confirm_cooldown_seconds", 5))
+    tk.Spinbox(win, from_=0, to=60, increment=1,
+               textvariable=confirm_cd_var, width=10).grid(row=4, column=1, sticky="w", **pad)
+
+    # ── Monitor index ──
+    tk.Label(win, text="Monitor Index").grid(row=5, column=0, sticky="w", **pad)
+    monitor_var = tk.IntVar(value=current_cfg.get("monitor_index", 0))
+    mon_frame = tk.Frame(win)
+    mon_frame.grid(row=5, column=1, sticky="w", **pad)
+    tk.Spinbox(mon_frame, from_=0, to=10, increment=1,
+               textvariable=monitor_var, width=5).pack(side="left")
+    tk.Label(mon_frame, text="(0 = all)", fg="gray").pack(side="left", padx=(5, 0))
+
+    # ── Grayscale ──
+    grayscale_var = tk.BooleanVar(value=current_cfg.get("grayscale", True))
+    tk.Checkbutton(win, text="Grayscale matching (faster)",
+                   variable=grayscale_var).grid(row=6, column=0, columnspan=2, sticky="w", **pad)
+
+    # ── Log level ──
+    tk.Label(win, text="Log Level").grid(row=7, column=0, sticky="w", **pad)
+    log_var = tk.StringVar(value=current_cfg.get("log_level", "INFO"))
+    tk.OptionMenu(win, log_var, "DEBUG", "INFO", "WARNING").grid(
+        row=7, column=1, sticky="w", **pad)
+
+    # ── Scan region ──
+    region = current_cfg.get("region") or {}
+    tk.Label(win, text="Scan Region (optional)", font=("Segoe UI", 9, "bold")).grid(
+        row=8, column=0, columnspan=2, sticky="w", **pad)
+
+    region_frame = tk.Frame(win)
+    region_frame.grid(row=9, column=0, columnspan=2, sticky="w", padx=10)
+
+    tk.Label(region_frame, text="Left:").grid(row=0, column=0)
+    left_var = tk.StringVar(value=str(region.get("left", "")))
+    tk.Entry(region_frame, textvariable=left_var, width=6).grid(row=0, column=1, padx=2)
+
+    tk.Label(region_frame, text="Top:").grid(row=0, column=2)
+    top_var = tk.StringVar(value=str(region.get("top", "")))
+    tk.Entry(region_frame, textvariable=top_var, width=6).grid(row=0, column=3, padx=2)
+
+    tk.Label(region_frame, text="Width:").grid(row=0, column=4)
+    width_var = tk.StringVar(value=str(region.get("width", "")))
+    tk.Entry(region_frame, textvariable=width_var, width=6).grid(row=0, column=5, padx=2)
+
+    tk.Label(region_frame, text="Height:").grid(row=0, column=6)
+    height_var = tk.StringVar(value=str(region.get("height", "")))
+    tk.Entry(region_frame, textvariable=height_var, width=6).grid(row=0, column=7, padx=2)
+
+    # ── Template paths (read-only info) ──
+    tk.Label(win, text="Templates", font=("Segoe UI", 9, "bold")).grid(
+        row=10, column=0, columnspan=2, sticky="w", **pad)
+    tk.Label(win, text=f"Click:    {current_cfg.get('template_path', '')}",
+             fg="gray").grid(row=11, column=0, columnspan=2, sticky="w", padx=10)
+    tk.Label(win, text=f"Confirm: {current_cfg.get('confirm_template_path', '')}",
+             fg="gray").grid(row=12, column=0, columnspan=2, sticky="w", padx=10)
+
+    # ── Buttons ──
+    def on_save_click():
+        # Build region dict or None
+        region_val = None
+        try:
+            l, t, rw, rh = left_var.get(), top_var.get(), width_var.get(), height_var.get()
+            if l and t and rw and rh:
+                region_val = {
+                    "left": int(l), "top": int(t),
+                    "width": int(rw), "height": int(rh),
+                }
+        except ValueError:
+            pass
+
+        new_cfg = {
+            "mode": mode_var.get(),
+            "template_path": current_cfg.get("template_path", "templates/button.png"),
+            "confirm_template_path": current_cfg.get("confirm_template_path",
+                                                     "templates/confirm_prompt.png"),
+            "scan_interval_ms": interval_var.get(),
+            "confidence_threshold": round(threshold_var.get(), 2),
+            "click_cooldown_seconds": click_cd_var.get(),
+            "confirm_cooldown_seconds": confirm_cd_var.get(),
+            "monitor_index": monitor_var.get(),
+            "region": region_val,
+            "grayscale": grayscale_var.get(),
+            "log_level": log_var.get(),
+        }
+        win.destroy()
+        on_save(new_cfg)
+
+    btn_frame = tk.Frame(win)
+    btn_frame.grid(row=13, column=0, columnspan=2, pady=15)
+    tk.Button(btn_frame, text="Save", width=12, command=on_save_click).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="Cancel", width=12, command=win.destroy).pack(side="left", padx=5)
+
+    win.mainloop()
+
+
 # ── Main app ───────────────────────────────────────────────────────────────
 
 class ClickerApp:
     def __init__(self):
         self.running = True
-        self.paused = False
+        self.paused = True
         self.monitor_thread: threading.Thread | None = None
         self.tray: pystray.Icon | None = None
         self.click_count = 0
-        self.last_status = "Starting..."
+        self.confirm_count = 0
+        self.last_status = "Paused — right-click to resume"
         self._template_lock = threading.Lock()
         self._pending_template_reload = False
+        self._pending_mode_change: str | None = None
+
+        cfg = load_config()
+        self.mode = cfg.get("mode", "auto_click")
 
     def _get_template_path(self) -> Path:
         cfg = load_config()
         return APP_DIR / cfg["template_path"]
 
+    def _get_confirm_template_path(self) -> Path:
+        cfg = load_config()
+        return APP_DIR / cfg.get("confirm_template_path", "templates/confirm_prompt.png")
+
     def build_menu(self) -> pystray.Menu:
         template_path = self._get_template_path()
         has_template = template_path.exists()
+        confirm_template_path = self._get_confirm_template_path()
+        has_confirm_template = confirm_template_path.exists()
+
+        mode_label = "Auto Click" if self.mode == "auto_click" else "Auto Confirm"
 
         return pystray.Menu(
             pystray.MenuItem(
@@ -212,17 +382,45 @@ class ClickerApp:
                 enabled=False,
             ),
             pystray.MenuItem(
-                lambda _: f"Clicks: {self.click_count}",
+                lambda _: f"Mode: {mode_label}",
+                None,
+                enabled=False,
+            ),
+            pystray.MenuItem(
+                lambda _: (f"Clicks: {self.click_count}"
+                           if self.mode == "auto_click"
+                           else f"Confirms: {self.confirm_count}"),
                 None,
                 enabled=False,
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
-                "Set Template Image...",
+                "Mode",
+                pystray.Menu(
+                    pystray.MenuItem(
+                        "Auto Click (screen button)",
+                        self.on_set_mode_click,
+                        checked=lambda _: self.mode == "auto_click",
+                        radio=True,
+                    ),
+                    pystray.MenuItem(
+                        "Auto Confirm (Claude CLI)",
+                        self.on_set_mode_confirm,
+                        checked=lambda _: self.mode == "auto_confirm",
+                        radio=True,
+                    ),
+                ),
+            ),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                "Set Click Template..." if self.mode == "auto_click"
+                else "Set Confirm Template...",
                 self.on_set_template,
             ),
             pystray.MenuItem(
-                lambda _: f"Template: {'OK' if has_template else 'NOT SET'}",
+                lambda _: (f"Click Template: {'OK' if has_template else 'NOT SET'}"
+                           if self.mode == "auto_click"
+                           else f"Confirm Template: {'OK' if has_confirm_template else 'NOT SET'}"),
                 None,
                 enabled=False,
             ),
@@ -231,12 +429,41 @@ class ClickerApp:
                 lambda _: "Resume" if self.paused else "Pause",
                 self.on_toggle_pause,
             ),
+            pystray.MenuItem("Settings...", self.on_open_settings),
             pystray.MenuItem("Open Log File", self.on_open_log),
-            pystray.MenuItem("Open Config", self.on_open_config),
             pystray.MenuItem("Open Templates Folder", self.on_open_templates),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Stop", self.on_stop),
         )
+
+    def on_set_mode_click(self, icon, item):
+        self._switch_mode("auto_click")
+
+    def on_set_mode_confirm(self, icon, item):
+        self._switch_mode("auto_confirm")
+
+    def _switch_mode(self, new_mode: str):
+        if self.mode == new_mode:
+            return
+        self.mode = new_mode
+        log.info("Mode changed to: %s", new_mode)
+
+        # Persist to config
+        try:
+            cfg = load_config()
+            cfg["mode"] = new_mode
+            with open(CONFIG_PATH, "w") as f:
+                json.dump(cfg, f, indent=4)
+        except Exception as e:
+            log.warning("Could not persist mode to config: %s", e)
+
+        # Signal monitor loop to reload template for new mode
+        with self._template_lock:
+            self._pending_mode_change = new_mode
+            self._pending_template_reload = True
+
+        if self.tray:
+            self.tray.update_menu()
 
     def on_set_template(self, icon, item):
         """Let the user pick an image file, copy it to templates/button.png, and reload."""
@@ -249,7 +476,12 @@ class ClickerApp:
 
         chosen_path = Path(chosen)
         cfg = load_config()
-        dest = APP_DIR / cfg["template_path"]
+
+        # Pick destination based on current mode
+        if self.mode == "auto_confirm":
+            dest = APP_DIR / cfg.get("confirm_template_path", "templates/confirm_prompt.png")
+        else:
+            dest = APP_DIR / cfg["template_path"]
 
         # Ensure templates dir exists
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -266,9 +498,10 @@ class ClickerApp:
         with self._template_lock:
             self._pending_template_reload = True
 
+        mode_label = "Confirm" if self.mode == "auto_confirm" else "Click"
         show_info(
             "Template Updated",
-            f"Template image set to:\n{chosen_path.name}\n\n"
+            f"{mode_label} template image set to:\n{chosen_path.name}\n\n"
             f"Size: {PIL.Image.open(dest).size[0]}x{PIL.Image.open(dest).size[1]} pixels\n\n"
             "The monitor will use the new template immediately."
         )
@@ -288,11 +521,38 @@ class ClickerApp:
             log.info("Resumed by user.")
         icon.update_menu()
 
+    def on_open_settings(self, icon, item):
+        threading.Thread(target=self._settings_flow, daemon=True).start()
+
+    def _settings_flow(self):
+        cfg = load_config()
+
+        def on_save(new_cfg):
+            try:
+                with open(CONFIG_PATH, "w") as f:
+                    json.dump(new_cfg, f, indent=4)
+                    f.write("\n")
+                log.info("Settings saved.")
+            except Exception as e:
+                log.error("Failed to save settings: %s", e)
+                show_error("Settings Error", f"Could not save config:\n{e}")
+                return
+
+            # Apply mode change if needed
+            if new_cfg.get("mode") != self.mode:
+                self._switch_mode(new_cfg["mode"])
+            else:
+                # Trigger a config + template reload
+                with self._template_lock:
+                    self._pending_template_reload = True
+
+            if self.tray:
+                self.tray.update_menu()
+
+        open_settings_dialog(cfg, on_save)
+
     def on_open_log(self, icon, item):
         os.startfile(str(LOG_PATH))
-
-    def on_open_config(self, icon, item):
-        os.startfile(str(CONFIG_PATH))
 
     def on_open_templates(self, icon, item):
         TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
@@ -309,6 +569,12 @@ class ClickerApp:
         # Force exit to ensure no threads keep the process alive
         os._exit(0)
 
+    def _get_active_template_path_key(self) -> str:
+        """Return the config key for the template path based on current mode."""
+        if self.mode == "auto_confirm":
+            return "confirm_template_path"
+        return "template_path"
+
     def monitor_loop(self):
         """Main screen monitoring loop — runs in a background thread."""
         try:
@@ -316,21 +582,24 @@ class ClickerApp:
             logging.getLogger().setLevel(cfg.get("log_level", "INFO"))
 
             grayscale = cfg.get("grayscale", True)
-            template = load_template(cfg["template_path"], grayscale)
+            template_key = self._get_active_template_path_key()
+            template = load_template(cfg.get(template_key, cfg["template_path"]), grayscale)
             threshold = cfg["confidence_threshold"]
             interval = cfg["scan_interval_ms"] / 1000.0
-            cooldown = cfg["click_cooldown_seconds"]
+            click_cooldown = cfg["click_cooldown_seconds"]
+            confirm_cooldown = cfg.get("confirm_cooldown_seconds", 5)
             monitor_index = cfg.get("monitor_index", 0)
             region = cfg.get("region")
 
             pyautogui.FAILSAFE = True
             pyautogui.PAUSE = 0.05
 
-            last_click_time = 0.0
+            last_action_time = 0.0
 
-            log.info("=== VSCode Button Auto-Clicker ===")
-            log.info("Threshold: %.2f | Interval: %dms | Cooldown: %ds",
-                     threshold, cfg["scan_interval_ms"], cooldown)
+            mode_label = "Auto Click" if self.mode == "auto_click" else "Auto Confirm"
+            log.info("=== VSCode Button %s ===", mode_label)
+            log.info("Mode: %s | Threshold: %.2f | Interval: %dms",
+                     self.mode, threshold, cfg["scan_interval_ms"])
 
             if template is None:
                 self.last_status = "No template — set one via tray menu"
@@ -344,23 +613,38 @@ class ClickerApp:
 
             with mss.mss() as sct:
                 while self.running:
-                    # Check for template reload
+                    # Check for template reload or mode change
                     with self._template_lock:
                         if self._pending_template_reload:
                             self._pending_template_reload = False
+                            if self._pending_mode_change:
+                                self._pending_mode_change = None
                             cfg = load_config()
-                            new_template = load_template(cfg["template_path"], grayscale)
-                            if new_template is not None:
-                                template = new_template
+                            template_key = self._get_active_template_path_key()
+                            new_tpl = load_template(
+                                cfg.get(template_key, cfg["template_path"]),
+                                grayscale,
+                            )
+                            if new_tpl is not None:
+                                template = new_tpl
                                 self.last_status = "Monitoring..."
                                 if self.tray:
                                     self.tray.icon = create_tray_icon_image("green")
                                     self.tray.update_menu()
                             else:
-                                self.last_status = "Template load failed"
+                                template = None
+                                self.last_status = "No template — set one via tray menu"
                                 if self.tray:
-                                    self.tray.icon = create_tray_icon_image("red")
+                                    self.tray.icon = create_tray_icon_image("yellow")
                                     self.tray.update_menu()
+
+                            # Reload config values that may have changed
+                            threshold = cfg["confidence_threshold"]
+                            interval = cfg["scan_interval_ms"] / 1000.0
+                            click_cooldown = cfg["click_cooldown_seconds"]
+                            confirm_cooldown = cfg.get("confirm_cooldown_seconds", 5)
+                            monitor_index = cfg.get("monitor_index", 0)
+                            region = cfg.get("region")
 
                     if self.paused or template is None:
                         time.sleep(0.25)
@@ -376,14 +660,25 @@ class ClickerApp:
                         abs_x = mon["left"] + cx
                         abs_y = mon["top"] + cy
 
+                        cooldown = (confirm_cooldown
+                                    if self.mode == "auto_confirm"
+                                    else click_cooldown)
                         now = time.time()
-                        if now - last_click_time >= cooldown:
-                            log.info("Button found (confidence=%.3f) at (%d, %d)",
-                                     confidence, abs_x, abs_y)
-                            click_at(abs_x, abs_y)
-                            last_click_time = now
-                            self.click_count += 1
-                            self.last_status = f"Clicked at ({abs_x}, {abs_y})"
+                        if now - last_action_time >= cooldown:
+                            if self.mode == "auto_confirm":
+                                log.info("Confirm prompt found (confidence=%.3f) at (%d, %d)",
+                                         confidence, abs_x, abs_y)
+                                confirm_at(abs_x, abs_y)
+                                last_action_time = now
+                                self.confirm_count += 1
+                                self.last_status = f"Confirmed at ({abs_x}, {abs_y})"
+                            else:
+                                log.info("Button found (confidence=%.3f) at (%d, %d)",
+                                         confidence, abs_x, abs_y)
+                                click_at(abs_x, abs_y)
+                                last_action_time = now
+                                self.click_count += 1
+                                self.last_status = f"Clicked at ({abs_x}, {abs_y})"
 
                             if self.tray:
                                 self.tray.icon = create_tray_icon_image("blue")
@@ -391,8 +686,8 @@ class ClickerApp:
                                 time.sleep(0.3)
                                 self.tray.icon = create_tray_icon_image("green")
                         else:
-                            remaining = cooldown - (now - last_click_time)
-                            log.debug("Button visible but in cooldown (%.1fs left)", remaining)
+                            remaining = cooldown - (now - last_action_time)
+                            log.debug("Match visible but in cooldown (%.1fs left)", remaining)
 
                     elapsed = time.perf_counter() - start
                     sleep_time = max(0, interval - elapsed)
@@ -412,8 +707,8 @@ class ClickerApp:
 
         self.tray = pystray.Icon(
             name="VSCode Auto-Clicker",
-            icon=create_tray_icon_image("green"),
-            title="VSCode Auto-Clicker",
+            icon=create_tray_icon_image("yellow"),
+            title="VSCode Auto-Clicker — Paused",
             menu=self.build_menu(),
         )
         self.tray.run()

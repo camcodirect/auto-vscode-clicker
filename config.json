@@ -1,8 +1,11 @@
 {
+    "mode": "auto_click",
     "template_path": "templates/button.png",
+    "confirm_template_path": "templates/confirm_prompt.png",
     "scan_interval_ms": 500,
     "confidence_threshold": 0.8,
     "click_cooldown_seconds": 3,
+    "confirm_cooldown_seconds": 5,
     "monitor_index": 0,
     "region": null,
     "grayscale": true,

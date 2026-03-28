@@ -1,15 +1,19 @@
-# VSCode Auto-Clicker
+# VSCode Auto-Clicker / Auto-Confirm
 
-A lightweight Windows utility that watches your screen for a specific button and automatically clicks it when detected. Runs quietly in the system tray with pause/resume controls.
+A lightweight Windows utility with two modes:
 
-Built for VS Code workflows (e.g., auto-accepting suggestions, clicking recurring prompts), but works with any on-screen button.
+- **Auto Click** - Watches your screen for a specific button and clicks it automatically. Great for VS Code users who need to auto-accept suggestions or click recurring prompts.
+- **Auto Confirm** - Watches for a Claude CLI confirmation prompt ("1. Yes / 2. No") in any console window (standalone cmd/PowerShell or VS Code integrated terminal), focuses it, and sends `1` + Enter automatically.
+
+Runs quietly in the system tray with pause/resume controls and a built-in settings GUI.
 
 ## How It Works
 
 1. Takes rapid screenshots of your screen using `mss`
-2. Uses OpenCV template matching to find your target button
-3. Clicks it with `pyautogui` when the confidence threshold is met
-4. Waits for a cooldown period before clicking again
+2. Uses OpenCV template matching to find your target (button or prompt)
+3. **Auto Click mode**: clicks the matched button
+4. **Auto Confirm mode**: clicks the console area to focus it, types `1`, presses Enter
+5. Waits for a cooldown period before acting again
 
 ## Quick Start
 
@@ -21,10 +25,9 @@ Built for VS Code workflows (e.g., auto-accepting suggestions, clicking recurrin
 
 ### 1. Clone or Download
 
-Download/extract the project folder, then open a terminal in that directory:
-
 ```bash
-cd path\to\auto-claude-vscode-clicker
+git clone https://github.com/camcodirect/auto-vscode-clicker.git
+cd auto-vscode-clicker
 ```
 
 ### 2. Install Dependencies
@@ -39,24 +42,31 @@ This installs:
 | `opencv-python` | Image template matching |
 | `numpy` | Array operations for image processing |
 | `mss` | Fast screenshot capture (~30ms) |
-| `pyautogui` | Mouse clicking |
+| `pyautogui` | Mouse clicking and keyboard input |
 | `Pillow` | Image manipulation |
 | `pystray` | System tray icon and menu |
 
 ### 3. Create a Template Image
 
-You need a screenshot of the exact button you want auto-clicked.
+You need a screenshot of what the tool should look for on screen.
 
-1. Open VS Code (or whatever app) with the button visible on screen
+**For Auto Click mode** (default):
+1. Open VS Code with the button visible on screen
 2. Press **Win + Shift + S** (Snipping Tool)
 3. Select **just the button** - crop tightly, no extra padding
-4. Save the screenshot as `templates/button.png`
+4. Save as `templates/button.png`
+
+**For Auto Confirm mode**:
+1. Open your Claude CLI session (in cmd, PowerShell, or VS Code terminal)
+2. Wait for a confirmation prompt to appear ("Do you want to proceed?" / "1. Yes, 2. No")
+3. Press **Win + Shift + S** and capture the prompt text
+4. Save as `templates/confirm_prompt.png`
 
 **Tips for a good template:**
 - Use **PNG format** (lossless - no JPEG compression artifacts)
 - Capture at your current display scale (100%, 125%, 150%, etc.)
-- Include only the button itself, not surrounding UI elements
-- The more unique the button looks, the better the matching works
+- Crop tightly around the target - include only the button/prompt text
+- The more unique the captured area looks, the better the matching works
 
 ### 4. Run
 
@@ -66,17 +76,39 @@ python clicker.py
 
 A green icon appears in your system tray (bottom-right of taskbar). The tool is now monitoring your screen.
 
+## Choosing a Mode
+
+You can switch modes in three ways:
+
+1. **Tray menu** - Right-click tray icon > Mode > pick Auto Click or Auto Confirm
+2. **Settings dialog** - Right-click tray icon > Settings > change Mode
+3. **Config file** - Set `"mode"` to `"auto_click"` or `"auto_confirm"` in `config.json`
+
+### Auto Click mode
+Best for **VS Code users** who want to auto-click a button in the editor UI (accept suggestions, dismiss dialogs, etc.).
+
+### Auto Confirm mode
+Best for **Claude CLI users** running Claude Code in any terminal:
+- Windows Command Prompt (cmd)
+- PowerShell
+- VS Code integrated terminal
+- Windows Terminal
+
+When the tool detects the confirmation prompt on screen, it clicks the console to focus it and sends `1` + Enter to confirm.
+
 ## System Tray Controls
 
 Right-click the tray icon to access the menu:
 
 | Menu Item | Description |
 |-----------|-------------|
-| **Status** | Shows current state and total click count |
-| **Set Template Image** | Pick a different button image via file dialog |
+| **Status** | Shows current state and action count |
+| **Mode** | Shows current mode (Auto Click / Auto Confirm) |
+| **Mode submenu** | Switch between Auto Click and Auto Confirm |
+| **Set Template** | Pick a template image for the current mode |
 | **Pause / Resume** | Temporarily stop/start monitoring |
+| **Settings** | Open the settings GUI to adjust all options |
 | **Open Log File** | View `clicker.log` in your default text editor |
-| **Open Config** | Edit `config.json` in your default editor |
 | **Open Templates Folder** | Open the templates directory in Explorer |
 | **Stop** | Quit the application |
 
@@ -85,20 +117,37 @@ Right-click the tray icon to access the menu:
 | Color | Meaning |
 |-------|---------|
 | Green | Active - monitoring screen |
-| Yellow | Paused |
+| Yellow | Paused or no template set |
 | Red | Error (check log) |
-| Blue | Just clicked (brief flash) |
+| Blue | Just acted (brief flash after click/confirm) |
 
-## Configuration
+## Settings
 
-Edit `config.json` to customize behavior:
+Right-click the tray icon and select **Settings** to open the settings GUI. All options can be adjusted without editing files:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Mode** | Auto Click | `auto_click` or `auto_confirm` |
+| **Scan Interval** | 500 ms | How often to scan the screen |
+| **Confidence Threshold** | 0.80 | Match confidence required (0.0 - 1.0). Lower = more lenient |
+| **Click Cooldown** | 3 sec | Minimum seconds between clicks (Auto Click mode) |
+| **Confirm Cooldown** | 5 sec | Minimum seconds between confirms (Auto Confirm mode) |
+| **Monitor Index** | 0 | `0` = all monitors, `1` = primary, `2` = secondary |
+| **Grayscale** | On | Faster matching when enabled |
+| **Log Level** | INFO | `DEBUG` for verbose output, `WARNING` for quiet |
+| **Scan Region** | None | Optional pixel region to limit scanning area |
+
+You can also edit `config.json` directly:
 
 ```json
 {
+    "mode": "auto_click",
     "template_path": "templates/button.png",
+    "confirm_template_path": "templates/confirm_prompt.png",
     "scan_interval_ms": 500,
     "confidence_threshold": 0.8,
     "click_cooldown_seconds": 3,
+    "confirm_cooldown_seconds": 5,
     "monitor_index": 0,
     "region": null,
     "grayscale": true,
@@ -106,26 +155,13 @@ Edit `config.json` to customize behavior:
 }
 ```
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `template_path` | `templates/button.png` | Path to the button screenshot |
-| `scan_interval_ms` | `500` | How often to scan (milliseconds) |
-| `confidence_threshold` | `0.8` | Match confidence required (0.0 - 1.0). Lower = more lenient |
-| `click_cooldown_seconds` | `3` | Minimum seconds between clicks |
-| `monitor_index` | `0` | `0` = all monitors, `1` = primary, `2` = secondary |
-| `region` | `null` | Restrict scanning to a specific area (see below) |
-| `grayscale` | `true` | Convert to grayscale before matching (faster) |
-| `log_level` | `INFO` | `DEBUG`, `INFO`, or `WARNING` |
-
 ### Scan Region (Optional)
 
-To improve performance, limit scanning to just the area where the button appears:
+To improve performance, limit scanning to just the area where the button/prompt appears:
 
 ```json
 "region": {"left": 100, "top": 200, "width": 800, "height": 100}
 ```
-
-Use the Snipping Tool or a screen coordinate tool to find the pixel coordinates of the area.
 
 ## Building a Standalone .exe
 
@@ -136,15 +172,9 @@ pip install pyinstaller
 python build.py
 ```
 
-This creates a `dist/VSCodeAutoClicker/` folder containing:
-- `VSCodeAutoClicker.exe` - standalone executable
-- `config.json` - settings file
-- `templates/` - folder for button images
-- `icon.ico` - tray icon
-
-A `dist/VSCodeAutoClicker.zip` is also created, ready to share. Your friend just needs to:
+This creates a `dist/VSCodeAutoClicker/` folder and a `dist/VSCodeAutoClicker.zip` ready to share. The recipient just needs to:
 1. Extract the zip
-2. Put their button screenshot in the `templates/` folder
+2. Capture their button/prompt screenshot into the `templates/` folder
 3. Run `VSCodeAutoClicker.exe`
 
 No Python installation needed.
@@ -162,20 +192,25 @@ This can also set up the tool to run automatically on Windows login.
 
 ## Troubleshooting
 
-### Button not detected
-- **Lower the threshold**: Try `0.7` or `0.6` in `config.json`
+### Button/prompt not detected
+- **Lower the threshold**: Open Settings and try 0.70 or 0.60
 - **Check display scaling**: Recapture the template at your current Windows display scale
-- **Recapture the template**: VS Code theme, zoom, or font changes affect button appearance
-- **Enable debug logging**: Set `"log_level": "DEBUG"` to see scan details
+- **Recapture the template**: Theme, zoom, or font changes affect appearance
+- **Enable debug logging**: Set log level to `DEBUG` in Settings to see scan details
+
+### Auto Confirm not working
+- Make sure the console window with the Claude prompt is **visible on screen** (not minimized)
+- The template should capture the prompt text as it appears in your specific terminal (cmd vs PowerShell vs VS Code terminal may look different)
+- Try lowering the confidence threshold if the prompt has slight visual variations
 
 ### Clicking the wrong spot
-- Crop a more unique section of the button
-- Check `monitor_index` for multi-monitor setups
+- Crop a more unique section of the button/prompt
+- Check monitor index for multi-monitor setups
 
 ### High CPU usage
-- Increase `scan_interval_ms` to `1000` or `2000`
-- Set a `region` to scan a smaller area
-- Keep `grayscale` set to `true`
+- Increase scan interval to 1000-2000 ms in Settings
+- Set a scan region to limit the search area
+- Keep grayscale enabled
 
 ### pyautogui FailSafeException
 Moving your mouse to the top-left corner (0,0) triggers pyautogui's safety shutdown. This is intentional - it gives you an emergency stop.
@@ -190,17 +225,24 @@ pip install -r requirements.txt --force-reinstall
 Activity is logged to `clicker.log` in the application directory. Example output:
 
 ```
-12:30:01 [INFO] Loaded template: button.png (120x32)
-12:30:01 [INFO] === VSCode Button Auto-Clicker ===
-12:30:01 [INFO] Threshold: 0.80 | Interval: 500ms | Cooldown: 3s
+12:30:01 [INFO] === VSCode Button Auto Click ===
+12:30:01 [INFO] Mode: auto_click | Threshold: 0.80 | Interval: 500ms
 12:30:05 [INFO] Button found (confidence=0.923) at (1045, 567)
 12:30:05 [INFO] Clicked at (1045, 567)
+```
+
+Auto Confirm mode log:
+```
+12:30:01 [INFO] === VSCode Button Auto Confirm ===
+12:30:01 [INFO] Mode: auto_confirm | Threshold: 0.80 | Interval: 500ms
+12:30:05 [INFO] Confirm prompt found (confidence=0.891) at (800, 450)
+12:30:05 [INFO] Sent confirmation '1' + Enter at (800, 450)
 ```
 
 ## Project Structure
 
 ```
-auto-claude-vscode-clicker/
+auto-vscode-clicker/
 ├── clicker.py              # Main application
 ├── clicker.pyw             # Windowless launcher (no console window)
 ├── config.json             # Settings
@@ -210,6 +252,7 @@ auto-claude-vscode-clicker/
 ├── install_shortcuts.py    # Windows shortcut installer
 ├── icon.ico                # System tray icon
 ├── templates/
-│   └── button.png          # Your button screenshot goes here
+│   ├── button.png          # Auto Click template (you create this)
+│   └── confirm_prompt.png  # Auto Confirm template (you create this)
 └── dist/                   # Built .exe output (after running build.py)
 ```
