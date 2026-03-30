@@ -2,6 +2,7 @@
     "mode": "auto_click",
     "template_path": "templates/button.png",
     "confirm_template_path": "templates/confirm_prompt.png",
+    "confirm_templates_dir": "templates/confirm",
     "scan_interval_ms": 500,
     "confidence_threshold": 0.8,
     "click_cooldown_seconds": 3,
