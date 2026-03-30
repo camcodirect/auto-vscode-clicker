@@ -11,6 +11,7 @@ Uses OpenCV template matching with mss for fast screenshots.
 """
 
 import atexit
+import ctypes
 import json
 import logging
 import os
@@ -30,6 +31,12 @@ import PIL.Image
 import PIL.ImageDraw
 import pyautogui
 import pystray
+
+# Ensure correct DPI awareness for accurate screen coordinates on Windows
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+except Exception:
+    pass
 
 
 def get_app_dir() -> Path:
@@ -162,13 +169,18 @@ def find_button(screen: np.ndarray, template: np.ndarray, threshold: float):
 
 
 def click_at(x: int, y: int) -> None:
-    pyautogui.click(x, y)
+    """Move to the target, hover briefly, then click. The delay helps Electron apps."""
+    pyautogui.moveTo(x, y)
+    time.sleep(0.08)
+    pyautogui.click()
     log.info("Clicked at (%d, %d)", x, y)
 
 
 def confirm_at(x: int, y: int) -> None:
     """Click the console area to focus it, then type '1' and press Enter."""
-    pyautogui.click(x, y)
+    pyautogui.moveTo(x, y)
+    time.sleep(0.08)
+    pyautogui.click()
     time.sleep(0.15)  # brief pause to let the window focus
     pyautogui.typewrite("1", interval=0.03)
     pyautogui.press("enter")
