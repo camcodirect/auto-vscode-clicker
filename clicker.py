@@ -1,13 +1,15 @@
 """
 VSCode Button Auto-Clicker / Auto-Confirm
 
-Two modes of operation:
-  - Auto Click:   Monitors screen for a button image and clicks it when found.
-  - Auto Confirm: Monitors screen for a Claude CLI confirmation prompt
-                   ("1. Yes / 2. No"), focuses the console, and sends "1" + Enter.
+Modes of operation:
+  - Auto Click:        Monitors screen for a button image and clicks it.
+  - Auto Confirm:      Monitors screen for a Claude CLI confirmation prompt
+                       and sends "1" + Enter (requires window to be visible).
+  - Background Confirm: Reads terminal console buffers directly via Win32 API
+                       and sends keystrokes — works even when minimized.
+  - Both:              Auto Click + Auto Confirm simultaneously.
 
 Runs as a system tray application with right-click menu to control.
-Uses OpenCV template matching with mss for fast screenshots.
 """
 
 import atexit
@@ -31,6 +33,10 @@ import PIL.Image
 import PIL.ImageDraw
 import pyautogui
 import pystray
+
+from console_monitor import (
+    ProcessCache, detect_prompt, read_console_buffer, send_console_keys,
+)
 
 # Ensure correct DPI awareness for accurate screen coordinates on Windows
 try:
@@ -287,6 +293,8 @@ def open_settings_dialog(current_cfg: dict, on_save) -> None:
                    value="auto_confirm").pack(side="left", padx=(10, 0))
     tk.Radiobutton(mode_frame, text="Both", variable=mode_var,
                    value="both").pack(side="left", padx=(10, 0))
+    tk.Radiobutton(mode_frame, text="BG Confirm", variable=mode_var,
+                   value="bg_confirm").pack(side="left", padx=(10, 0))
 
     # ── Scan interval ──
     tk.Label(win, text="Scan Interval (ms)").grid(row=1, column=0, sticky="w", **pad)
@@ -420,6 +428,10 @@ class ClickerApp:
         self._template_lock = threading.Lock()
         self._pending_template_reload = False
         self._pending_mode_change: str | None = None
+        # Background confirm state
+        self._process_cache = ProcessCache(ttl=10.0)
+        self._bg_cooldowns: dict[int, float] = {}  # pid → last confirm time
+        self._bg_cursor_positions: dict[int, int] = {}  # pid → cursor_y at confirm
 
         cfg = load_config()
         self.mode = cfg.get("mode", "auto_click")
@@ -453,7 +465,8 @@ class ClickerApp:
         has_confirm_template = confirm_count > 0
 
         mode_label = {"auto_click": "Auto Click", "auto_confirm": "Auto Confirm",
-                      "both": "Both"}.get(self.mode, self.mode)
+                      "both": "Both", "bg_confirm": "BG Confirm",
+                      }.get(self.mode, self.mode)
 
         return pystray.Menu(
             pystray.MenuItem(
@@ -495,6 +508,12 @@ class ClickerApp:
                         "Both (Click + Confirm)",
                         self.on_set_mode_both,
                         checked=lambda _: self.mode == "both",
+                        radio=True,
+                    ),
+                    pystray.MenuItem(
+                        "Background Confirm (minimized OK)",
+                        self.on_set_mode_bg_confirm,
+                        checked=lambda _: self.mode == "bg_confirm",
                         radio=True,
                     ),
                 ),
@@ -544,6 +563,9 @@ class ClickerApp:
 
     def on_set_mode_both(self, icon, item):
         self._switch_mode("both")
+
+    def on_set_mode_bg_confirm(self, icon, item):
+        self._switch_mode("bg_confirm")
 
     def _switch_mode(self, new_mode: str):
         if self.mode == new_mode:
@@ -741,12 +763,15 @@ class ClickerApp:
             last_confirm_time = 0.0
 
             mode_label = {"auto_click": "Auto Click", "auto_confirm": "Auto Confirm",
-                      "both": "Both"}.get(self.mode, self.mode)
+                      "both": "Both", "bg_confirm": "BG Confirm",
+                      }.get(self.mode, self.mode)
             log.info("=== VSCode Button %s ===", mode_label)
             log.info("Mode: %s | Threshold: %.2f | Interval: %dms",
                      self.mode, threshold, cfg["scan_interval_ms"])
 
-            if self.mode == "both":
+            if self.mode == "bg_confirm":
+                has_templates = True  # No templates needed
+            elif self.mode == "both":
                 has_templates = template is not None or len(confirm_templates) > 0
             elif self.mode == "auto_confirm":
                 has_templates = len(confirm_templates) > 0
@@ -785,7 +810,9 @@ class ClickerApp:
                             else:
                                 template = None
 
-                            if self.mode == "both":
+                            if self.mode == "bg_confirm":
+                                has_templates = True
+                            elif self.mode == "both":
                                 has_templates = (template is not None
                                                  or len(confirm_templates) > 0)
                             elif self.mode == "auto_confirm":
@@ -817,60 +844,100 @@ class ClickerApp:
                         continue
 
                     start = time.perf_counter()
-
-                    screen, mon = grab_screen(sct, monitor_index, region, grayscale)
-
-                    # Check for confirm match (higher priority)
-                    confirm_match = None
-                    if self.mode in ("auto_confirm", "both") and confirm_templates:
-                        confirm_match = find_any_match(
-                            screen, confirm_templates, threshold)
-
-                    # Check for click match
-                    click_match = None
-                    if self.mode in ("auto_click", "both") and template is not None:
-                        click_match = find_button(screen, template, threshold)
-
-                    now = time.time()
                     acted = False
 
-                    # Process confirm match first
-                    if confirm_match:
-                        cx, cy, confidence = confirm_match
-                        abs_x = mon["left"] + cx
-                        abs_y = mon["top"] + cy
-                        if now - last_confirm_time >= confirm_cooldown:
-                            log.info("Confirm prompt found (confidence=%.3f)"
-                                     " at (%d, %d)", confidence, abs_x, abs_y)
-                            confirm_at(abs_x, abs_y)
-                            last_confirm_time = now
-                            self.confirm_count += 1
-                            self.last_status = f"Confirmed at ({abs_x}, {abs_y})"
-                            acted = True
-                        else:
-                            remaining = confirm_cooldown - (
-                                now - last_confirm_time)
-                            log.debug("Confirm match but in cooldown"
-                                      " (%.1fs left)", remaining)
+                    # ── Background Confirm mode ──
+                    if self.mode == "bg_confirm":
+                        now = time.time()
+                        for pid in self._process_cache.get_pids():
+                            try:
+                                lines, cursor_y = read_console_buffer(
+                                    pid, num_lines=15)
+                                # Skip if cursor hasn't moved since last confirm
+                                prev_y = self._bg_cursor_positions.get(pid, -1)
+                                if cursor_y <= prev_y:
+                                    continue
+                                match = detect_prompt(lines)
+                                if not match:
+                                    continue
+                                # Per-process cooldown
+                                last_t = self._bg_cooldowns.get(pid, 0.0)
+                                if now - last_t < confirm_cooldown:
+                                    continue
+                                pattern, response = match
+                                send_console_keys(pid, response)
+                                self._bg_cooldowns[pid] = now
+                                self._bg_cursor_positions[pid] = cursor_y
+                                self.confirm_count += 1
+                                self.last_status = (
+                                    f"BG Confirmed PID {pid}")
+                                log.info("BG confirm: sent '%s' to PID %d"
+                                         " (pattern: %s)", response, pid,
+                                         pattern)
+                                acted = True
+                                break  # One confirm per cycle
+                            except OSError as exc:
+                                log.debug("PID %d: %s", pid, exc)
+                    else:
+                        # ── Visual matching modes ──
+                        screen, mon = grab_screen(
+                            sct, monitor_index, region, grayscale)
 
-                    # Process click match (skip if we just confirmed)
-                    if click_match and not acted:
-                        cx, cy, confidence = click_match
-                        abs_x = mon["left"] + cx
-                        abs_y = mon["top"] + cy
-                        if now - last_click_time >= click_cooldown:
-                            log.info("Button found (confidence=%.3f)"
-                                     " at (%d, %d)", confidence, abs_x, abs_y)
-                            click_at(abs_x, abs_y)
-                            last_click_time = now
-                            self.click_count += 1
-                            self.last_status = f"Clicked at ({abs_x}, {abs_y})"
-                            acted = True
-                        else:
-                            remaining = click_cooldown - (
-                                now - last_click_time)
-                            log.debug("Click match but in cooldown"
-                                      " (%.1fs left)", remaining)
+                        # Check for confirm match (higher priority)
+                        confirm_match = None
+                        if (self.mode in ("auto_confirm", "both")
+                                and confirm_templates):
+                            confirm_match = find_any_match(
+                                screen, confirm_templates, threshold)
+
+                        # Check for click match
+                        click_match = None
+                        if (self.mode in ("auto_click", "both")
+                                and template is not None):
+                            click_match = find_button(
+                                screen, template, threshold)
+
+                        now = time.time()
+
+                        if confirm_match:
+                            cx, cy, confidence = confirm_match
+                            abs_x = mon["left"] + cx
+                            abs_y = mon["top"] + cy
+                            if now - last_confirm_time >= confirm_cooldown:
+                                log.info(
+                                    "Confirm prompt found (confidence=%.3f)"
+                                    " at (%d, %d)", confidence, abs_x, abs_y)
+                                confirm_at(abs_x, abs_y)
+                                last_confirm_time = now
+                                self.confirm_count += 1
+                                self.last_status = (
+                                    f"Confirmed at ({abs_x}, {abs_y})")
+                                acted = True
+                            else:
+                                remaining = confirm_cooldown - (
+                                    now - last_confirm_time)
+                                log.debug("Confirm match but in cooldown"
+                                          " (%.1fs left)", remaining)
+
+                        if click_match and not acted:
+                            cx, cy, confidence = click_match
+                            abs_x = mon["left"] + cx
+                            abs_y = mon["top"] + cy
+                            if now - last_click_time >= click_cooldown:
+                                log.info(
+                                    "Button found (confidence=%.3f)"
+                                    " at (%d, %d)", confidence, abs_x, abs_y)
+                                click_at(abs_x, abs_y)
+                                last_click_time = now
+                                self.click_count += 1
+                                self.last_status = (
+                                    f"Clicked at ({abs_x}, {abs_y})")
+                                acted = True
+                            else:
+                                remaining = click_cooldown - (
+                                    now - last_click_time)
+                                log.debug("Click match but in cooldown"
+                                          " (%.1fs left)", remaining)
 
                     if acted and self.tray:
                         self.tray.icon = create_tray_icon_image("blue")
