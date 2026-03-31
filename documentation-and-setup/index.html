@@ -1,0 +1,1468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VSCode Auto-Clicker — Setup &amp; User Guide</title>
+<style>
+  /* ── Reset & Base ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; font-size: 17px; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: #1a1a2e; background: #f8f9fc; line-height: 1.7;
+  }
+
+  /* ── Sidebar Navigation ── */
+  .sidebar {
+    position: fixed; top: 0; left: 0; width: 280px; height: 100vh;
+    background: #1a1a2e; color: #c8c8e0; overflow-y: auto;
+    padding: 24px 0; z-index: 100; transition: transform .3s;
+  }
+  .sidebar-logo {
+    text-align: center; padding: 0 20px 24px; border-bottom: 1px solid #2d2d50;
+  }
+  .sidebar-logo svg { width: 48px; height: 48px; }
+  .sidebar-logo h2 { color: #fff; font-size: 1rem; margin-top: 8px; }
+  .sidebar-logo span { font-size: .75rem; color: #7c7ca0; }
+  .sidebar nav { padding: 16px 0; }
+  .sidebar nav a {
+    display: block; padding: 10px 24px; color: #a0a0c0; text-decoration: none;
+    font-size: .88rem; border-left: 3px solid transparent; transition: all .2s;
+  }
+  .sidebar nav a:hover, .sidebar nav a.active {
+    color: #fff; background: rgba(76,175,80,.1); border-left-color: #4caf50;
+  }
+  .sidebar nav .section-label {
+    padding: 18px 24px 6px; font-size: .7rem; text-transform: uppercase;
+    letter-spacing: 1.5px; color: #5a5a80;
+  }
+
+  /* ── Main Content ── */
+  .main { margin-left: 280px; padding: 0; }
+
+  /* ── Hero ── */
+  .hero {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    color: #fff; padding: 80px 60px 60px; position: relative; overflow: hidden;
+  }
+  .hero::after {
+    content: ''; position: absolute; top: -50%; right: -20%; width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(76,175,80,.15) 0%, transparent 70%);
+    border-radius: 50%;
+  }
+  .hero h1 { font-size: 2.6rem; font-weight: 700; line-height: 1.2; position: relative; z-index: 1; }
+  .hero h1 span { color: #4caf50; }
+  .hero p { font-size: 1.15rem; color: #a0b4d0; margin-top: 16px; max-width: 640px; position: relative; z-index: 1; }
+  .hero-badges { display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; position: relative; z-index: 1; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px;
+    background: rgba(255,255,255,.1); border-radius: 20px; font-size: .8rem; color: #d0d8e8;
+  }
+  .badge svg { width: 14px; height: 14px; }
+
+  /* ── Content Sections ── */
+  .content { max-width: 900px; margin: 0 auto; padding: 48px 40px 80px; }
+  section { margin-bottom: 64px; }
+  section h2 {
+    font-size: 1.7rem; color: #1a1a2e; margin-bottom: 8px;
+    padding-bottom: 12px; border-bottom: 3px solid #4caf50;
+    display: inline-block;
+  }
+  section h3 { font-size: 1.2rem; color: #2d2d50; margin: 32px 0 12px; }
+  section h4 { font-size: 1rem; color: #444; margin: 20px 0 8px; }
+  section p { margin-bottom: 14px; color: #3a3a5a; }
+
+  /* ── Step cards ── */
+  .steps { counter-reset: step; }
+  .step {
+    position: relative; padding: 24px 24px 24px 80px; margin-bottom: 20px;
+    background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    border-left: 4px solid #4caf50;
+  }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; left: 20px; top: 24px; width: 40px; height: 40px;
+    background: #4caf50; color: #fff; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 1.1rem;
+  }
+  .step h4 { margin-top: 0; color: #1a1a2e; font-size: 1.05rem; }
+  .step p { margin-bottom: 8px; }
+
+  /* ── Info / Warning / Tip boxes ── */
+  .callout {
+    padding: 16px 20px; border-radius: 10px; margin: 20px 0;
+    display: flex; gap: 14px; align-items: flex-start;
+  }
+  .callout svg { flex-shrink: 0; margin-top: 2px; }
+  .callout p { margin: 0; font-size: .92rem; }
+  .callout-info { background: #e8f4fd; border-left: 4px solid #2196f3; }
+  .callout-warn { background: #fff8e1; border-left: 4px solid #ff9800; }
+  .callout-tip  { background: #e8f5e9; border-left: 4px solid #4caf50; }
+  .callout-danger { background: #fce4ec; border-left: 4px solid #e53935; }
+
+  /* ── Code blocks ── */
+  code {
+    background: #eef0f5; padding: 2px 7px; border-radius: 4px;
+    font-family: 'Cascadia Code', 'Consolas', monospace; font-size: .88rem;
+  }
+  pre {
+    background: #1e1e2e; color: #cdd6f4; padding: 20px 24px; border-radius: 10px;
+    overflow-x: auto; margin: 16px 0; font-size: .85rem; line-height: 1.6;
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+
+  /* ── Diagram / Illustration containers ── */
+  .diagram {
+    background: #fff; border-radius: 12px; padding: 32px;
+    box-shadow: 0 2px 16px rgba(0,0,0,.07); margin: 24px 0;
+    text-align: center; overflow-x: auto;
+  }
+  .diagram svg { max-width: 100%; height: auto; }
+  .diagram-caption {
+    margin-top: 12px; font-size: .82rem; color: #888; font-style: italic;
+  }
+
+  /* ── Tray menu mockup ── */
+  .tray-mockup {
+    background: #f0f0f0; border: 1px solid #ccc; border-radius: 8px;
+    width: 320px; padding: 4px 0; font-family: 'Segoe UI', sans-serif;
+    font-size: 13px; color: #222; margin: 20px auto; box-shadow: 0 4px 20px rgba(0,0,0,.15);
+    text-align: left;
+  }
+  .tray-item {
+    padding: 6px 28px; cursor: default; display: flex; justify-content: space-between;
+  }
+  .tray-item:hover { background: #e5f3ff; }
+  .tray-item.disabled { color: #888; }
+  .tray-item.disabled:hover { background: transparent; }
+  .tray-sep { border-top: 1px solid #d0d0d0; margin: 4px 0; }
+  .tray-item .shortcut { color: #888; font-size: 11px; }
+  .tray-radio::before {
+    content: ''; display: inline-block; width: 12px; height: 12px;
+    border: 2px solid #666; border-radius: 50%; margin-right: 8px; vertical-align: middle;
+  }
+  .tray-radio.selected::before {
+    background: #4caf50; border-color: #4caf50;
+  }
+  .tray-submenu { padding-left: 44px; }
+
+  /* ── Settings dialog mockup ── */
+  .settings-mockup {
+    background: #f0f0f0; border: 1px solid #bbb; border-radius: 4px;
+    width: 460px; margin: 20px auto; font-family: 'Segoe UI', sans-serif;
+    font-size: 13px; box-shadow: 0 6px 30px rgba(0,0,0,.2);
+    text-align: left;
+  }
+  .settings-titlebar {
+    background: #fff; padding: 8px 14px; border-bottom: 1px solid #ddd;
+    font-weight: 600; font-size: 13px; display: flex; justify-content: space-between;
+  }
+  .settings-body { padding: 16px 20px; }
+  .settings-row {
+    display: flex; align-items: center; margin-bottom: 12px; gap: 12px;
+  }
+  .settings-row label { width: 160px; font-size: 12px; color: #333; flex-shrink: 0; }
+  .settings-row input, .settings-row select {
+    border: 1px solid #aaa; padding: 4px 8px; border-radius: 3px;
+    font-size: 12px; width: 120px;
+  }
+  .settings-row .radio-group { display: flex; gap: 10px; font-size: 12px; }
+  .settings-buttons {
+    text-align: center; padding: 12px; border-top: 1px solid #ddd; margin-top: 8px;
+  }
+  .settings-buttons button {
+    padding: 6px 24px; margin: 0 4px; border: 1px solid #999;
+    border-radius: 3px; background: #e8e8e8; font-size: 12px; cursor: pointer;
+  }
+  .settings-buttons button:first-child { background: #4caf50; color: #fff; border-color: #4caf50; }
+
+  /* ── Hotkey display ── */
+  kbd {
+    display: inline-block; padding: 3px 8px; background: #f4f4f4;
+    border: 1px solid #ccc; border-bottom: 3px solid #bbb; border-radius: 5px;
+    font-family: 'Consolas', monospace; font-size: .85rem; color: #333;
+    box-shadow: 0 1px 2px rgba(0,0,0,.1); line-height: 1;
+  }
+  .hotkey-display {
+    display: inline-flex; align-items: center; gap: 6px; margin: 4px 0;
+  }
+  .hotkey-display .plus { color: #999; font-weight: 700; }
+
+  /* ── Feature cards ── */
+  .features-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 24px 0; }
+  .feature-card {
+    background: #fff; border-radius: 12px; padding: 24px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.06); border-top: 4px solid #4caf50;
+  }
+  .feature-card h4 { margin-top: 0; display: flex; align-items: center; gap: 8px; }
+  .feature-card p { font-size: .9rem; color: #555; }
+
+  /* ── Icon color swatches ── */
+  .icon-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 20px 0; }
+  .icon-card {
+    text-align: center; background: #fff; border-radius: 10px; padding: 20px 12px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.06);
+  }
+  .icon-swatch {
+    width: 48px; height: 48px; border-radius: 50%; margin: 0 auto 10px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .icon-swatch.green  { background: #4caf50; }
+  .icon-swatch.yellow { background: #ffc107; }
+  .icon-swatch.red    { background: #f44336; }
+  .icon-swatch.blue   { background: #2196f3; }
+  .icon-swatch::after {
+    content: ''; width: 20px; height: 20px; border-radius: 50%;
+    background: rgba(255,255,255,.4);
+  }
+  .icon-card .label { font-weight: 600; font-size: .9rem; }
+  .icon-card .desc  { font-size: .78rem; color: #777; margin-top: 4px; }
+
+  /* ── Table ── */
+  table {
+    width: 100%; border-collapse: collapse; margin: 16px 0;
+    background: #fff; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,.06);
+  }
+  th { background: #1a1a2e; color: #fff; text-align: left; padding: 12px 16px; font-size: .85rem; }
+  td { padding: 10px 16px; border-bottom: 1px solid #eee; font-size: .9rem; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f8faf8; }
+
+  /* ── Mode comparison cards ── */
+  .mode-card {
+    background: #fff; border-radius: 12px; padding: 24px; margin: 16px 0;
+    box-shadow: 0 2px 12px rgba(0,0,0,.06); border-left: 5px solid;
+  }
+  .mode-card.click    { border-left-color: #2196f3; }
+  .mode-card.confirm  { border-left-color: #ff9800; }
+  .mode-card.both     { border-left-color: #9c27b0; }
+  .mode-card.bg       { border-left-color: #4caf50; }
+  .mode-card h4 { margin-top: 0; }
+  .mode-card .mode-tag {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: .75rem; font-weight: 600; color: #fff; margin-bottom: 8px;
+  }
+  .mode-card.click .mode-tag    { background: #2196f3; }
+  .mode-card.confirm .mode-tag  { background: #ff9800; }
+  .mode-card.both .mode-tag     { background: #9c27b0; }
+  .mode-card.bg .mode-tag       { background: #4caf50; }
+
+  /* ── Screenshot frame ── */
+  .screenshot {
+    border: 2px solid #ddd; border-radius: 10px; overflow: hidden; margin: 20px 0;
+    box-shadow: 0 4px 20px rgba(0,0,0,.1);
+  }
+  .screenshot-bar {
+    background: #e8e8e8; padding: 8px 14px; font-size: 12px; color: #666;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .screenshot-bar .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .screenshot-bar .dot.r { background: #ff5f57; }
+  .screenshot-bar .dot.y { background: #ffbd2e; }
+  .screenshot-bar .dot.g { background: #28c940; }
+  .screenshot-body { background: #1e1e2e; padding: 20px; color: #cdd6f4; font-family: 'Consolas', monospace; font-size: 13px; line-height: 1.7; }
+  .screenshot-body .prompt { color: #a6e3a1; }
+  .screenshot-body .cmd { color: #89b4fa; }
+  .screenshot-body .output { color: #bac2de; }
+  .screenshot-body .highlight { color: #f9e2af; }
+
+  /* ── Flowchart (CSS-based) ── */
+  .flow { display: flex; flex-direction: column; align-items: center; gap: 0; margin: 24px 0; }
+  .flow-box {
+    background: #fff; border: 2px solid #4caf50; border-radius: 10px;
+    padding: 12px 24px; font-weight: 600; font-size: .9rem; text-align: center;
+    min-width: 220px;
+  }
+  .flow-box.action { background: #e8f5e9; border-color: #4caf50; }
+  .flow-box.decision { background: #fff8e1; border-color: #ff9800; transform: rotate(0deg); border-radius: 4px; }
+  .flow-box.wait { background: #e3f2fd; border-color: #2196f3; }
+  .flow-arrow {
+    width: 2px; height: 28px; background: #999; position: relative;
+  }
+  .flow-arrow::after {
+    content: ''; position: absolute; bottom: -4px; left: -4px;
+    border-left: 5px solid transparent; border-right: 5px solid transparent;
+    border-top: 8px solid #999;
+  }
+  .flow-label { font-size: .75rem; color: #888; margin: 2px 0; }
+
+  /* ── Responsive ── */
+  .mobile-menu-btn {
+    display: none; position: fixed; top: 12px; left: 12px; z-index: 200;
+    background: #1a1a2e; color: #fff; border: none; border-radius: 8px;
+    padding: 8px 12px; cursor: pointer; font-size: 1.2rem;
+  }
+  @media (max-width: 900px) {
+    .sidebar { transform: translateX(-100%); }
+    .sidebar.open { transform: translateX(0); }
+    .main { margin-left: 0; }
+    .hero { padding: 60px 24px 40px; }
+    .hero h1 { font-size: 1.8rem; }
+    .content { padding: 32px 20px 60px; }
+    .features-grid { grid-template-columns: 1fr; }
+    .icon-grid { grid-template-columns: repeat(2, 1fr); }
+    .tray-mockup, .settings-mockup { width: 100%; }
+    .mobile-menu-btn { display: block; }
+  }
+
+  /* ── Scroll-to-top ── */
+  .scroll-top {
+    position: fixed; bottom: 24px; right: 24px; width: 44px; height: 44px;
+    background: #4caf50; color: #fff; border: none; border-radius: 50%;
+    cursor: pointer; font-size: 1.3rem; box-shadow: 0 2px 12px rgba(0,0,0,.2);
+    display: none; z-index: 50; transition: opacity .3s;
+  }
+  .scroll-top.visible { display: flex; align-items: center; justify-content: center; }
+
+  /* ── Print ── */
+  @media print {
+    .sidebar, .mobile-menu-btn, .scroll-top { display: none !important; }
+    .main { margin-left: 0; }
+    .hero { background: #333 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Mobile Menu Button -->
+<button class="mobile-menu-btn" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Toggle menu">&#9776;</button>
+
+<!-- ── Sidebar ── -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <svg viewBox="0 0 64 64" fill="none">
+      <circle cx="32" cy="32" r="28" fill="#4caf50"/>
+      <circle cx="32" cy="32" r="14" fill="rgba(255,255,255,.35)"/>
+      <polygon points="27,20 46,32 27,44" fill="#fff"/>
+    </svg>
+    <h2>VSCode Auto-Clicker</h2>
+    <span>Setup &amp; User Guide</span>
+  </div>
+  <nav>
+    <div class="section-label">Getting Started</div>
+    <a href="#quick-start">Quick Start</a>
+    <a href="#installation">Installation</a>
+    <a href="#first-run">First Run</a>
+
+    <div class="section-label">Core Concepts</div>
+    <a href="#how-it-works">How It Works</a>
+    <a href="#modes">The 4 Modes</a>
+    <a href="#templates">Templates</a>
+
+    <div class="section-label">Using the App</div>
+    <a href="#tray-icon">System Tray Icon</a>
+    <a href="#tray-menu">Tray Menu</a>
+    <a href="#hotkeys">Keyboard Hotkeys</a>
+    <a href="#settings">Settings</a>
+
+    <div class="section-label">Advanced</div>
+    <a href="#config-file">Config File Reference</a>
+    <a href="#multi-monitor">Multi-Monitor &amp; Regions</a>
+    <a href="#bg-confirm">Background Confirm Deep Dive</a>
+    <a href="#building">Building the .exe</a>
+
+    <div class="section-label">Help</div>
+    <a href="#troubleshooting">Troubleshooting</a>
+    <a href="#faq">FAQ</a>
+  </nav>
+</aside>
+
+<!-- ── Main Content ── -->
+<div class="main">
+
+  <!-- Hero -->
+  <header class="hero">
+    <h1>VSCode <span>Auto-Clicker</span><br>Setup &amp; User Guide</h1>
+    <p>A lightweight Windows utility that automatically clicks buttons and confirms prompts in VS Code and Claude CLI &mdash; so you never have to babysit your workflow again.</p>
+    <div class="hero-badges">
+      <span class="badge">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 100 16A8 8 0 008 0zm1 12H7V7h2v5zm0-6H7V4h2v2z"/></svg>
+        Windows 10 / 11
+      </span>
+      <span class="badge">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3l7 5-7 5V3z"/></svg>
+        4 Automation Modes
+      </span>
+      <span class="badge">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2.5a1 1 0 110 2 1 1 0 010-2zM6.5 7h3l-.5 5h-2L6.5 7z"/></svg>
+        Global Hotkeys
+      </span>
+      <span class="badge">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 2h12v10H2V2zm1 1v8h10V3H3z"/></svg>
+        System Tray App
+      </span>
+    </div>
+  </header>
+
+  <div class="content">
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- QUICK START                                                     -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="quick-start">
+      <h2>Quick Start (5 Minutes)</h2>
+      <p>Get up and running as fast as possible. Follow these steps in order.</p>
+
+      <div class="steps">
+        <div class="step">
+          <h4>Download &amp; Extract</h4>
+          <p>If you received a <code>VSCodeAutoClicker.zip</code> file, extract it to any folder (e.g. your Desktop or Documents). You should see a folder containing <code>VSCodeAutoClicker.exe</code>, <code>config.json</code>, and a <code>templates</code> folder.</p>
+          <p><strong>If running from source instead:</strong> Make sure Python 3.10+ is installed, open a terminal in the project folder, and run:</p>
+          <pre><code>pip install -r requirements.txt</code></pre>
+        </div>
+
+        <div class="step">
+          <h4>Create Your First Template</h4>
+          <p>You need a screenshot of the button you want auto-clicked.</p>
+          <ol style="margin:8px 0 0 20px; color:#3a3a5a;">
+            <li>Open VS Code and find the button on screen</li>
+            <li>Press <kbd>Win</kbd> <span class="plus">+</span> <kbd>Shift</kbd> <span class="plus">+</span> <kbd>S</kbd> to open the snipping tool</li>
+            <li>Draw a tight rectangle around <em>just</em> the button</li>
+            <li>Save the image as <code>button.png</code> inside the <code>templates</code> folder</li>
+          </ol>
+
+          <div class="diagram">
+            <svg viewBox="0 0 600 160" style="max-width:500px">
+              <!-- VS Code mock bar -->
+              <rect x="20" y="20" width="560" height="120" rx="8" fill="#1e1e2e" stroke="#333" stroke-width="2"/>
+              <rect x="40" y="55" width="200" height="22" rx="4" fill="#2d2d50"/>
+              <text x="60" y="70" font-family="Consolas" font-size="12" fill="#cdd6f4">Some code here...</text>
+              <rect x="40" y="85" width="200" height="22" rx="4" fill="#2d2d50"/>
+              <text x="60" y="100" font-family="Consolas" font-size="12" fill="#cdd6f4">More code...</text>
+              <!-- The button to capture -->
+              <rect x="380" y="60" width="140" height="36" rx="6" fill="#0e639c"/>
+              <text x="415" y="83" font-family="Segoe UI" font-size="13" fill="#fff" font-weight="600">Continue</text>
+              <!-- Snip rectangle -->
+              <rect x="372" y="52" width="156" height="52" rx="4" fill="none" stroke="#ff5722" stroke-width="2" stroke-dasharray="6,3"/>
+              <!-- Arrow label -->
+              <text x="380" y="128" font-family="Segoe UI" font-size="11" fill="#ff5722" font-weight="600">Screenshot this area only!</text>
+              <line x1="450" y1="117" x2="450" y2="108" stroke="#ff5722" stroke-width="1.5" marker-end="url(#arrowRed)"/>
+              <defs><marker id="arrowRed" viewBox="0 0 6 6" refX="3" refY="3" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#ff5722"/></marker></defs>
+            </svg>
+            <div class="diagram-caption">Use the Windows Snipping Tool to capture just the button. Save as <code>templates/button.png</code>.</div>
+          </div>
+        </div>
+
+        <div class="step">
+          <h4>Launch the App</h4>
+          <p><strong>From .exe:</strong> Double-click <code>VSCodeAutoClicker.exe</code></p>
+          <p><strong>From source:</strong> Double-click <code>clicker.pyw</code>, or run in terminal:</p>
+          <pre><code>python clicker.py</code></pre>
+          <p>A small green/yellow circle icon will appear in your Windows system tray (bottom-right corner near the clock).</p>
+
+          <div class="diagram">
+            <svg viewBox="0 0 520 80" style="max-width:440px">
+              <!-- Taskbar -->
+              <rect x="0" y="30" width="520" height="50" rx="0" fill="#1e1e2e"/>
+              <!-- System tray area -->
+              <rect x="340" y="38" width="170" height="34" rx="4" fill="#2a2a42"/>
+              <text x="380" y="60" font-family="Segoe UI" font-size="12" fill="#aaa">3:42 PM</text>
+              <!-- Other tray icons -->
+              <circle cx="360" cy="55" r="8" fill="#555"/>
+              <circle cx="460" cy="55" r="8" fill="#555"/>
+              <!-- Our icon highlighted -->
+              <circle cx="490" cy="55" r="10" fill="#ffc107" stroke="#fff" stroke-width="1.5"/>
+              <circle cx="490" cy="55" r="4" fill="rgba(255,255,255,.4)"/>
+              <!-- Arrow -->
+              <line x1="490" y1="32" x2="490" y2="22" stroke="#4caf50" stroke-width="2"/>
+              <text x="440" y="18" font-family="Segoe UI" font-size="11" fill="#4caf50" font-weight="600">Your app is here!</text>
+            </svg>
+            <div class="diagram-caption">Look for the colored circle in your system tray. Yellow = paused, Green = active.</div>
+          </div>
+        </div>
+
+        <div class="step">
+          <h4>Start Monitoring</h4>
+          <p>The app starts <strong>paused</strong> by default. To begin:</p>
+          <ul style="margin:8px 0 0 20px; color:#3a3a5a;">
+            <li>Press <kbd>Ctrl</kbd> <span class="plus">+</span> <kbd>Alt</kbd> <span class="plus">+</span> <kbd>P</kbd> on your keyboard, <strong>OR</strong></li>
+            <li>Right-click the tray icon and click <strong>"Resume"</strong></li>
+          </ul>
+          <p>The icon turns green. The app is now scanning your screen and will click the button whenever it appears.</p>
+        </div>
+
+        <div class="step">
+          <h4>Pause or Quit at Any Time</h4>
+          <p>These keyboard shortcuts work globally &mdash; even when the app is controlling your mouse:</p>
+          <table>
+            <tr><th>Action</th><th>Shortcut</th></tr>
+            <tr><td><strong>Pause / Resume</strong></td><td><kbd>Ctrl</kbd> <span class="plus">+</span> <kbd>Alt</kbd> <span class="plus">+</span> <kbd>P</kbd></td></tr>
+            <tr><td><strong>Stop &amp; Quit</strong></td><td><kbd>Ctrl</kbd> <span class="plus">+</span> <kbd>Alt</kbd> <span class="plus">+</span> <kbd>Q</kbd></td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="callout callout-tip">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="#4caf50"><path d="M10 0C4.5 0 0 4.5 0 10s4.5 10 10 10 10-4.5 10-10S15.5 0 10 0zm1 15H9v-2h2v2zm0-4H9V5h2v6z"/></svg>
+        <p><strong>That's it!</strong> You're up and running. Read on for detailed explanations of every feature.</p>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- INSTALLATION                                                    -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="installation">
+      <h2>Installation</h2>
+
+      <h3>Option A: Pre-Built .exe (Recommended for Non-Developers)</h3>
+      <div class="steps">
+        <div class="step">
+          <h4>Get the ZIP file</h4>
+          <p>Download or receive the <code>VSCodeAutoClicker.zip</code> file.</p>
+        </div>
+        <div class="step">
+          <h4>Extract it</h4>
+          <p>Right-click the ZIP &rarr; <strong>Extract All</strong> &rarr; choose a location (e.g. Desktop).</p>
+          <p>You'll get a folder like this:</p>
+          <pre><code>VSCodeAutoClicker/
+  VSCodeAutoClicker.exe    &larr; the app
+  config.json              &larr; settings file
+  icon.ico                 &larr; tray icon
+  templates/               &larr; put your button screenshots here
+    confirm/               &larr; confirm prompt screenshots (optional)</code></pre>
+        </div>
+        <div class="step">
+          <h4>Run it</h4>
+          <p>Double-click <code>VSCodeAutoClicker.exe</code>. No installation or Python needed.</p>
+        </div>
+      </div>
+
+      <div class="callout callout-info">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="#2196f3"><path d="M10 0C4.5 0 0 4.5 0 10s4.5 10 10 10 10-4.5 10-10S15.5 0 10 0zm1 15H9v-2h2v2zm0-4H9V5h2v6z"/></svg>
+        <p><strong>Windows SmartScreen warning:</strong> The first time you run the .exe, Windows may show a blue "Windows protected your PC" popup. Click <strong>"More info"</strong> then <strong>"Run anyway"</strong>. This is normal for unsigned applications.</p>
+      </div>
+
+      <h3>Option B: Running from Source (Developers)</h3>
+      <div class="steps">
+        <div class="step">
+          <h4>Install Python 3.10 or newer</h4>
+          <p>Download from <code>python.org</code>. During installation, check <strong>"Add Python to PATH"</strong>.</p>
+        </div>
+        <div class="step">
+          <h4>Open a terminal in the project folder</h4>
+          <p>Navigate to the folder containing <code>clicker.py</code> and open a command prompt or PowerShell window there.</p>
+        </div>
+        <div class="step">
+          <h4>Install dependencies</h4>
+          <pre><code>pip install -r requirements.txt</code></pre>
+          <p>This installs all required libraries (OpenCV, PyAutoGUI, keyboard, etc.).</p>
+          <div class="screenshot">
+            <div class="screenshot-bar">
+              <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+              Terminal
+            </div>
+            <div class="screenshot-body">
+              <span class="prompt">PS C:\VSCodeAutoClicker&gt;</span> <span class="cmd">pip install -r requirements.txt</span><br>
+              <span class="output">Collecting opencv-python>=4.8.0</span><br>
+              <span class="output">  Downloading opencv_python-4.10.0-cp313-...</span><br>
+              <span class="output">Collecting numpy>=1.24.0</span><br>
+              <span class="output">...</span><br>
+              <span class="highlight">Successfully installed keyboard-0.13.5 mss-9.0.2 numpy-2.2.3 opencv-python-4.10.0 ...</span>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <h4>Run the app</h4>
+          <pre><code>python clicker.py</code></pre>
+          <p>Or double-click <code>clicker.pyw</code> for a windowless launch.</p>
+        </div>
+      </div>
+
+      <h3>Optional: Create Windows Shortcuts</h3>
+      <p>To add Start Menu and (optionally) Desktop/Startup shortcuts:</p>
+      <pre><code>pip install winshell pywin32
+python install_shortcuts.py</code></pre>
+      <p>The script will ask if you want Desktop and auto-start-on-login shortcuts.</p>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- FIRST RUN                                                       -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="first-run">
+      <h2>First Run Walkthrough</h2>
+      <p>Here's exactly what happens the first time you launch the app, and what each visual cue means.</p>
+
+      <div class="steps">
+        <div class="step">
+          <h4>App starts in the system tray (paused)</h4>
+          <p>When you launch the app, it immediately goes to the system tray in the bottom-right corner of your screen. It does <strong>not</strong> open a window &mdash; it lives entirely in the tray.</p>
+          <p>The icon starts as a <strong style="color:#ffc107;">yellow circle</strong>, meaning the app is <strong>paused</strong> and waiting for you to start it.</p>
+        </div>
+
+        <div class="step">
+          <h4>Check if your template is loaded</h4>
+          <p>Right-click the tray icon. You'll see a menu. Look at the status lines at the top:</p>
+          <ul style="margin:8px 0 0 20px; color:#3a3a5a;">
+            <li><strong>"Click Template: OK"</strong> &mdash; Your <code>templates/button.png</code> was found. You're ready.</li>
+            <li><strong>"Click Template: NOT SET"</strong> &mdash; No template image found. You need to create one (see <a href="#templates">Templates</a>).</li>
+          </ul>
+        </div>
+
+        <div class="step">
+          <h4>Resume to start scanning</h4>
+          <p>Click <strong>"Resume"</strong> in the tray menu, or press <kbd>Ctrl</kbd> <span class="plus">+</span> <kbd>Alt</kbd> <span class="plus">+</span> <kbd>P</kbd>. The icon turns <strong style="color:#4caf50;">green</strong> and the app begins scanning your screen.</p>
+        </div>
+
+        <div class="step">
+          <h4>Watch it work</h4>
+          <p>When the app finds a match on screen, it will:</p>
+          <ol style="margin:8px 0 0 20px; color:#3a3a5a;">
+            <li>Move your mouse to the button</li>
+            <li>Briefly hover (80ms)</li>
+            <li>Click</li>
+            <li>Flash the tray icon <strong style="color:#2196f3;">blue</strong> briefly</li>
+            <li>Wait for the cooldown period before scanning again</li>
+          </ol>
+        </div>
+
+        <div class="step">
+          <h4>Pause when you need to use your mouse</h4>
+          <p>Press <kbd>Ctrl</kbd> <span class="plus">+</span> <kbd>Alt</kbd> <span class="plus">+</span> <kbd>P</kbd> at any time to instantly pause. The icon goes yellow. Press again to resume.</p>
+        </div>
+      </div>
+
+      <div class="callout callout-warn">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="#ff9800"><path d="M1 18h18L10 1 1 18zm10-3H9v-2h2v2zm0-4H9V7h2v4z"/></svg>
+        <p><strong>Emergency stop:</strong> If the app takes over your mouse and you can't click anything, press <kbd>Ctrl</kbd> <span class="plus">+</span> <kbd>Alt</kbd> <span class="plus">+</span> <kbd>Q</kbd> to immediately quit the app. You can also move your mouse to the very top-left corner of your screen (pixel 0,0) to trigger PyAutoGUI's built-in safety stop.</p>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- HOW IT WORKS                                                    -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="how-it-works">
+      <h2>How It Works</h2>
+      <p>The app continuously takes screenshots of your screen and compares them to your template image using computer vision. When it finds a match, it performs the configured action.</p>
+
+      <div class="diagram">
+        <div class="flow">
+          <div class="flow-box wait">App starts (paused)</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-label">User presses Ctrl+Alt+P</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box">Capture screenshot</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box decision">Template found on screen?</div>
+          <div style="display:flex; gap: 80px; align-items:flex-start; margin-top:12px;">
+            <div style="display:flex; flex-direction:column; align-items:center;">
+              <div class="flow-label" style="color:#4caf50; font-weight:600;">YES</div>
+              <div class="flow-arrow"></div>
+              <div class="flow-box decision">Cooldown elapsed?</div>
+              <div class="flow-label" style="color:#4caf50; font-weight:600;">YES</div>
+              <div class="flow-arrow"></div>
+              <div class="flow-box action">Click the button!</div>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center;">
+              <div class="flow-label" style="color:#e53935; font-weight:600;">NO</div>
+              <div class="flow-arrow"></div>
+              <div class="flow-box wait">Wait scan interval</div>
+              <div class="flow-label">(default: 500ms)</div>
+            </div>
+          </div>
+          <div style="margin-top:20px; display:flex; flex-direction:column; align-items:center;">
+            <div class="flow-arrow"></div>
+            <div class="flow-label">Loop repeats</div>
+          </div>
+        </div>
+        <div class="diagram-caption">The core scan-match-click cycle. This repeats continuously while the app is running and not paused.</div>
+      </div>
+
+      <h3>Key Concepts</h3>
+      <div class="features-grid">
+        <div class="feature-card">
+          <h4>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="#2196f3"><rect x="2" y="2" width="16" height="16" rx="3" fill="none" stroke="#2196f3" stroke-width="2"/><path d="M6 10h8M10 6v8" stroke="#2196f3" stroke-width="2"/></svg>
+            Template Matching
+          </h4>
+          <p>The app uses OpenCV (computer vision) to find your button screenshot on the live screen. It compares pixel patterns, not exact pixels, so small variations in rendering are tolerated.</p>
+        </div>
+        <div class="feature-card">
+          <h4>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="#ff9800"><circle cx="10" cy="10" r="8" fill="none" stroke="#ff9800" stroke-width="2"/><path d="M10 6v5l3 2" stroke="#ff9800" stroke-width="2" stroke-linecap="round"/></svg>
+            Cooldown
+          </h4>
+          <p>After clicking, the app waits a configurable number of seconds before clicking again. This prevents rapid double-clicks and gives the UI time to respond.</p>
+        </div>
+        <div class="feature-card">
+          <h4>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="#9c27b0"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zm0 3a2 2 0 110 4 2 2 0 010-4zm0 10c-2.2 0-4.1-1.1-5.2-2.8.6-1.1 3.1-1.7 5.2-1.7s4.6.6 5.2 1.7C14.1 13.9 12.2 15 10 15z" fill="#9c27b0"/></svg>
+            Confidence Threshold
+          </h4>
+          <p>A score from 0 to 1 that determines how closely the screen must match your template. Default is 0.8 (80%). Lower = more lenient, higher = more strict.</p>
+        </div>
+        <div class="feature-card">
+          <h4>
+            <svg width="20" height="20" viewBox="0 0 20 20"><rect x="1" y="6" width="8" height="8" rx="1" fill="#4caf50"/><rect x="11" y="6" width="8" height="8" rx="1" fill="#4caf50"/><rect x="1" y="1" width="18" height="3" rx="1" fill="#ccc"/></svg>
+            Grayscale Mode
+          </h4>
+          <p>By default, images are converted to grayscale before matching. This is ~3x faster and works well for most buttons. Disable only if you need to match by color.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- MODES                                                           -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="modes">
+      <h2>The 4 Modes</h2>
+      <p>The app has four different modes for different automation scenarios. You can switch modes at any time through the tray menu or settings.</p>
+
+      <div class="mode-card click">
+        <span class="mode-tag">AUTO CLICK</span>
+        <h4>Auto Click &mdash; Screen Button Clicker</h4>
+        <p>Watches your screen for a specific button (matched by your template image) and clicks it automatically.</p>
+        <table>
+          <tr><td><strong>Best for</strong></td><td>Clicking VS Code popups, dialog buttons, or any recurring on-screen button</td></tr>
+          <tr><td><strong>Requires</strong></td><td>A template screenshot of the button (<code>templates/button.png</code>)</td></tr>
+          <tr><td><strong>How it acts</strong></td><td>Moves mouse to button center &rarr; hovers 80ms &rarr; clicks</td></tr>
+          <tr><td><strong>Window visibility</strong></td><td>The button must be visible on screen</td></tr>
+        </table>
+      </div>
+
+      <div class="mode-card confirm">
+        <span class="mode-tag">AUTO CONFIRM</span>
+        <h4>Auto Confirm &mdash; Claude CLI Confirmer</h4>
+        <p>Watches for Claude CLI confirmation prompts (the numbered selection dialog) and automatically selects "1. Yes".</p>
+        <table>
+          <tr><td><strong>Best for</strong></td><td>Automatically approving Claude Code CLI prompts</td></tr>
+          <tr><td><strong>Requires</strong></td><td>One or more confirm template screenshots in <code>templates/confirm/</code></td></tr>
+          <tr><td><strong>How it acts</strong></td><td>Clicks the console area &rarr; types "1" &rarr; presses Enter</td></tr>
+          <tr><td><strong>Window visibility</strong></td><td>The terminal window must be visible on screen</td></tr>
+        </table>
+      </div>
+
+      <div class="mode-card both">
+        <span class="mode-tag">BOTH</span>
+        <h4>Both &mdash; Click + Confirm Together</h4>
+        <p>Runs Auto Click and Auto Confirm simultaneously. If both a button and a confirm prompt appear, the confirm prompt takes priority.</p>
+        <table>
+          <tr><td><strong>Best for</strong></td><td>Complex workflows that involve both UI buttons and CLI prompts</td></tr>
+          <tr><td><strong>Requires</strong></td><td>Both click template and confirm templates</td></tr>
+          <tr><td><strong>Priority</strong></td><td>Confirm prompts are checked first, then click templates</td></tr>
+        </table>
+      </div>
+
+      <div class="mode-card bg">
+        <span class="mode-tag">BACKGROUND CONFIRM</span>
+        <h4>Background Confirm &mdash; Works Minimized</h4>
+        <p>Reads terminal text directly from the Windows console buffer using the Win32 API. Works even when the terminal is <strong>minimized or behind other windows</strong>.</p>
+        <table>
+          <tr><td><strong>Best for</strong></td><td>Hands-free Claude CLI approval while working on other things</td></tr>
+          <tr><td><strong>Requires</strong></td><td>Nothing &mdash; no template images needed</td></tr>
+          <tr><td><strong>How it acts</strong></td><td>Reads console text &rarr; detects prompt patterns &rarr; sends keystrokes directly</td></tr>
+          <tr><td><strong>Window visibility</strong></td><td><strong>Not required!</strong> Works with minimized windows</td></tr>
+          <tr><td><strong>Supported terminals</strong></td><td>cmd.exe, powershell.exe, pwsh.exe, bash.exe</td></tr>
+        </table>
+        <div class="callout callout-info" style="margin-top:12px;">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="#2196f3"><path d="M10 0C4.5 0 0 4.5 0 10s4.5 10 10 10 10-4.5 10-10S15.5 0 10 0zm1 15H9v-2h2v2zm0-4H9V5h2v6z"/></svg>
+          <p>Background Confirm detects these patterns in your terminal: <code>&gt; 1. Yes</code>, <code>[y/N]</code>, and <code>(y/n)</code>. It also requires context phrases like "Do you want to proceed" or "requires approval" to prevent false positives.</p>
+        </div>
+      </div>
+
+      <h3>Which Mode Should I Use?</h3>
+      <div class="diagram">
+        <svg viewBox="0 0 700 300" style="max-width:660px; font-family:'Segoe UI',sans-serif;">
+          <!-- Start -->
+          <rect x="260" y="10" width="180" height="40" rx="20" fill="#1a1a2e"/>
+          <text x="350" y="35" text-anchor="middle" fill="#fff" font-size="13" font-weight="600">What do you need?</text>
+
+          <!-- Branches -->
+          <line x1="280" y1="50" x2="120" y2="90" stroke="#999" stroke-width="1.5"/>
+          <line x1="350" y1="50" x2="350" y2="90" stroke="#999" stroke-width="1.5"/>
+          <line x1="420" y1="50" x2="580" y2="90" stroke="#999" stroke-width="1.5"/>
+
+          <!-- Click a button? -->
+          <rect x="30" y="90" width="180" height="50" rx="8" fill="#e3f2fd" stroke="#2196f3" stroke-width="2"/>
+          <text x="120" y="112" text-anchor="middle" fill="#1a1a2e" font-size="12" font-weight="600">Click a button</text>
+          <text x="120" y="128" text-anchor="middle" fill="#666" font-size="11">on screen</text>
+
+          <!-- Confirm a prompt? -->
+          <rect x="260" y="90" width="180" height="50" rx="8" fill="#fff8e1" stroke="#ff9800" stroke-width="2"/>
+          <text x="350" y="112" text-anchor="middle" fill="#1a1a2e" font-size="12" font-weight="600">Confirm CLI prompts</text>
+          <text x="350" y="128" text-anchor="middle" fill="#666" font-size="11">in a terminal</text>
+
+          <!-- Both? -->
+          <rect x="490" y="90" width="180" height="50" rx="8" fill="#f3e5f5" stroke="#9c27b0" stroke-width="2"/>
+          <text x="580" y="112" text-anchor="middle" fill="#1a1a2e" font-size="12" font-weight="600">Both at once</text>
+          <text x="580" y="128" text-anchor="middle" fill="#666" font-size="11">buttons + prompts</text>
+
+          <!-- Arrow down from confirm -->
+          <line x1="350" y1="140" x2="350" y2="170" stroke="#999" stroke-width="1.5"/>
+          <text x="350" y="164" text-anchor="middle" fill="#888" font-size="10">Is the terminal visible?</text>
+
+          <line x1="300" y1="170" x2="240" y2="200" stroke="#999" stroke-width="1.5"/>
+          <line x1="400" y1="170" x2="460" y2="200" stroke="#999" stroke-width="1.5"/>
+
+          <!-- Results -->
+          <rect x="30" y="170" width="180" height="40" rx="20" fill="#2196f3"/>
+          <text x="120" y="194" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">Auto Click</text>
+
+          <rect x="150" y="200" width="180" height="40" rx="20" fill="#ff9800"/>
+          <text x="240" y="224" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">Auto Confirm</text>
+          <text x="190" y="196" fill="#4caf50" font-size="11" font-weight="600">Yes</text>
+
+          <rect x="370" y="200" width="200" height="40" rx="20" fill="#4caf50"/>
+          <text x="470" y="224" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">Background Confirm</text>
+          <text x="465" y="196" fill="#e53935" font-size="11" font-weight="600">No / minimized</text>
+
+          <rect x="490" y="170" width="180" height="40" rx="20" fill="#9c27b0"/>
+          <text x="580" y="194" text-anchor="middle" fill="#fff" font-size="12" font-weight="700">Both</text>
+        </svg>
+        <div class="diagram-caption">Decision flowchart for choosing the right mode.</div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- TEMPLATES                                                       -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="templates">
+      <h2>Templates &mdash; Teaching the App What to Click</h2>
+      <p>Templates are small screenshot images that tell the app what to look for on your screen. Think of them as "wanted posters" for buttons.</p>
+
+      <h3>Creating a Click Template</h3>
+      <div class="steps">
+        <div class="step">
+          <h4>Find the button on screen</h4>
+          <p>Open VS Code (or whatever app has the button) and make the button visible.</p>
+        </div>
+        <div class="step">
+          <h4>Take a tight screenshot</h4>
+          <p>Press <kbd>Win</kbd> <span class="plus">+</span> <kbd>Shift</kbd> <span class="plus">+</span> <kbd>S</kbd> and draw a rectangle around <strong>just the button</strong>. Don't include extra space around it.</p>
+          <div class="diagram">
+            <svg viewBox="0 0 500 120" style="max-width:420px;">
+              <!-- Good example -->
+              <rect x="10" y="10" width="220" height="100" rx="8" fill="#e8f5e9" stroke="#4caf50" stroke-width="2"/>
+              <text x="120" y="30" text-anchor="middle" fill="#4caf50" font-size="12" font-weight="700">GOOD</text>
+              <rect x="55" y="42" width="130" height="34" rx="6" fill="#0e639c"/>
+              <text x="120" y="63" text-anchor="middle" fill="#fff" font-size="12" font-weight="600">Continue</text>
+              <rect x="50" y="38" width="140" height="42" rx="3" fill="none" stroke="#4caf50" stroke-width="2" stroke-dasharray="5,3"/>
+              <text x="120" y="98" text-anchor="middle" fill="#555" font-size="10">Tight crop, button only</text>
+
+              <!-- Bad example -->
+              <rect x="270" y="10" width="220" height="100" rx="8" fill="#fce4ec" stroke="#e53935" stroke-width="2"/>
+              <text x="380" y="30" text-anchor="middle" fill="#e53935" font-size="12" font-weight="700">BAD</text>
+              <rect x="280" y="36" width="200" height="50" rx="3" fill="#1e1e2e"/>
+              <rect x="345" y="47" width="70" height="28" rx="6" fill="#0e639c"/>
+              <text x="380" y="65" text-anchor="middle" fill="#fff" font-size="11">Continue</text>
+              <rect x="275" y="32" width="210" height="58" rx="3" fill="none" stroke="#e53935" stroke-width="2" stroke-dasharray="5,3"/>
+              <text x="380" y="98" text-anchor="middle" fill="#555" font-size="10">Too much background included</text>
+            </svg>
+          </div>
+        </div>
+        <div class="step">
+          <h4>Save the image</h4>
+          <p><strong>Method A (manual):</strong> Save it as <code>button.png</code> in the <code>templates</code> folder.</p>
+          <p><strong>Method B (from tray):</strong> Right-click the tray icon &rarr; <strong>"Set Click Template..."</strong> &rarr; pick your screenshot file. It will be copied into the right place automatically.</p>
+        </div>
+      </div>
+
+      <h3>Creating Confirm Templates</h3>
+      <p>Confirm templates work the same way, but you can have <strong>multiple</strong> of them (to match different prompt styles).</p>
+      <div class="steps">
+        <div class="step">
+          <h4>Screenshot the confirm prompt</h4>
+          <p>When Claude CLI shows a confirmation prompt, capture just the text that says <code>&gt; 1. Yes</code> or similar.</p>
+          <div class="diagram">
+            <svg viewBox="0 0 480 100" style="max-width:400px;">
+              <rect x="10" y="10" width="460" height="80" rx="6" fill="#1e1e2e"/>
+              <text x="30" y="35" font-family="Consolas" font-size="11" fill="#a6e3a1">?</text>
+              <text x="45" y="35" font-family="Consolas" font-size="11" fill="#cdd6f4">Do you want to proceed? (Esc to cancel)</text>
+              <text x="30" y="55" font-family="Consolas" font-size="11" fill="#89b4fa">&gt; 1. Yes</text>
+              <text x="30" y="72" font-family="Consolas" font-size="11" fill="#bac2de">  2. Yes, and don't ask again</text>
+              <rect x="20" y="44" width="120" height="18" rx="2" fill="none" stroke="#ff5722" stroke-width="2" stroke-dasharray="4,2"/>
+              <text x="160" y="57" font-family="Segoe UI" font-size="10" fill="#ff5722" font-weight="600">&larr; Capture this line</text>
+            </svg>
+          </div>
+        </div>
+        <div class="step">
+          <h4>Save to the confirm folder</h4>
+          <p><strong>Method A (manual):</strong> Save your screenshot(s) in the <code>templates/confirm/</code> folder. Any name works.</p>
+          <p><strong>Method B (from tray):</strong> Right-click the tray icon &rarr; <strong>"Add Confirm Template..."</strong> &rarr; pick your file.</p>
+          <p>You can add as many confirm templates as you want. The app tries each one until it finds a match.</p>
+        </div>
+      </div>
+
+      <div class="callout callout-tip">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="#4caf50"><path d="M10 0C4.5 0 0 4.5 0 10s4.5 10 10 10 10-4.5 10-10S15.5 0 10 0zm1 15H9v-2h2v2zm0-4H9V5h2v6z"/></svg>
+        <p><strong>Template tips:</strong> Capture at the same display scaling (100%, 125%, etc.) you normally use. If you change your display scaling, re-capture your templates. Templates captured in dark mode won't match a light mode UI.</p>
+      </div>
+
+      <h3>Template Folder Structure</h3>
+      <pre><code>templates/
+  button.png               &larr; Your click template (one file)
+  confirm/                 &larr; Your confirm templates (any number of files)
+    prompt_style_1.png
+    prompt_style_2.png
+    another_variation.png</code></pre>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- TRAY ICON                                                       -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="tray-icon">
+      <h2>System Tray Icon</h2>
+      <p>The app lives in your Windows system tray (the small icons area next to the clock in the bottom-right). The icon color tells you the app's current state at a glance.</p>
+
+      <div class="icon-grid">
+        <div class="icon-card">
+          <div class="icon-swatch green"></div>
+          <div class="label">Green</div>
+          <div class="desc">Active &amp; monitoring<br>Ready to click</div>
+        </div>
+        <div class="icon-card">
+          <div class="icon-swatch yellow"></div>
+          <div class="label">Yellow</div>
+          <div class="desc">Paused by user<br>or no template set</div>
+        </div>
+        <div class="icon-card">
+          <div class="icon-swatch blue"></div>
+          <div class="label">Blue (flash)</div>
+          <div class="desc">Just performed<br>an action</div>
+        </div>
+        <div class="icon-card">
+          <div class="icon-swatch red"></div>
+          <div class="label">Red</div>
+          <div class="desc">Error occurred<br>Check the log file</div>
+        </div>
+      </div>
+
+      <div class="callout callout-info">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="#2196f3"><path d="M10 0C4.5 0 0 4.5 0 10s4.5 10 10 10 10-4.5 10-10S15.5 0 10 0zm1 15H9v-2h2v2zm0-4H9V5h2v6z"/></svg>
+        <p><strong>Can't see the icon?</strong> Windows sometimes hides tray icons. Click the small <strong>"^"</strong> arrow in the system tray to see hidden icons. You can drag the Auto-Clicker icon out of the hidden area to keep it always visible.</p>
+      </div>
+
+      <div class="diagram">
+        <svg viewBox="0 0 580 140" style="max-width:520px">
+          <!-- Taskbar -->
+          <rect x="0" y="70" width="580" height="50" rx="0" fill="#1e1e2e"/>
+          <!-- Tray area -->
+          <rect x="370" y="78" width="200" height="34" rx="4" fill="#2a2a42"/>
+          <!-- Chevron -->
+          <rect x="380" y="85" width="20" height="20" rx="3" fill="#3a3a5a"/>
+          <text x="386" y="100" font-family="Segoe UI" font-size="14" fill="#aaa">^</text>
+          <!-- Hidden icons popup -->
+          <rect x="340" y="10" width="140" height="48" rx="6" fill="#2a2a42" stroke="#444" stroke-width="1"/>
+          <circle cx="370" cy="34" r="10" fill="#555"/>
+          <circle cx="400" cy="34" r="10" fill="#555"/>
+          <circle cx="430" cy="34" r="10" fill="#ffc107"/>
+          <circle cx="430" cy="34" r="4" fill="rgba(255,255,255,.4)"/>
+          <circle cx="460" cy="34" r="10" fill="#555"/>
+          <!-- Arrow -->
+          <line x1="430" y1="48" x2="390" y2="78" stroke="#666" stroke-width="1" stroke-dasharray="3,3"/>
+          <!-- Label -->
+          <text x="380" y="100" font-family="Segoe UI" font-size="11" fill="#aaa">Click ^ to reveal</text>
+          <!-- Time -->
+          <text x="510" y="100" font-family="Segoe UI" font-size="12" fill="#aaa">3:42 PM</text>
+        </svg>
+        <div class="diagram-caption">If you don't see the icon, click the "^" arrow to expand hidden tray icons.</div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- TRAY MENU                                                       -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="tray-menu">
+      <h2>Tray Menu (Right-Click)</h2>
+      <p>Right-click the tray icon to access all controls. Here's what every menu item does:</p>
+
+      <div class="tray-mockup">
+        <div class="tray-item disabled" style="font-style:italic;">Monitoring...</div>
+        <div class="tray-item disabled" style="font-style:italic;">Mode: Auto Click</div>
+        <div class="tray-item disabled" style="font-style:italic;">Clicks: 12</div>
+        <div class="tray-sep"></div>
+        <div class="tray-item">Mode &nbsp;&rsaquo;
+          <div style="font-size:11px; color:#888; margin-left:auto;">submenu</div>
+        </div>
+        <div class="tray-sep"></div>
+        <div class="tray-item">Set Click Template...</div>
+        <div class="tray-item disabled" style="font-style:italic;">Click Template: OK</div>
+        <div class="tray-sep"></div>
+        <div class="tray-item" style="font-weight:600;">Pause <span class="shortcut">Ctrl+Alt+P</span></div>
+        <div class="tray-item">Settings...</div>
+        <div class="tray-item">Open Log File</div>
+        <div class="tray-item">Open Templates Folder</div>
+        <div class="tray-sep"></div>
+        <div class="tray-item" style="color:#e53935;">Stop <span class="shortcut">Ctrl+Alt+Q</span></div>
+      </div>
+
+      <table>
+        <tr><th>Menu Item</th><th>Description</th></tr>
+        <tr><td><em>Status line</em></td><td>Shows current state: "Monitoring...", "Paused", "Error", or last action</td></tr>
+        <tr><td><em>Mode line</em></td><td>Shows which mode is active</td></tr>
+        <tr><td><em>Counter line</em></td><td>Shows how many clicks/confirms have been performed this session</td></tr>
+        <tr><td><strong>Mode</strong> (submenu)</td><td>Switch between Auto Click, Auto Confirm, Both, and BG Confirm</td></tr>
+        <tr><td><strong>Set Click Template...</strong></td><td>Opens a file picker to choose a new click template image</td></tr>
+        <tr><td><strong>Add Confirm Template...</strong></td><td>Opens a file picker to add a new confirm template (visible in Confirm/Both modes)</td></tr>
+        <tr><td><em>Template status</em></td><td>Shows whether templates are loaded ("OK", "NOT SET", "3 loaded")</td></tr>
+        <tr><td><strong>Pause / Resume</strong></td><td>Toggle scanning on/off. Also available via <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd></td></tr>
+        <tr><td><strong>Settings...</strong></td><td>Opens the full settings window</td></tr>
+        <tr><td><strong>Open Log File</strong></td><td>Opens <code>clicker.log</code> in your default text editor</td></tr>
+        <tr><td><strong>Open Templates Folder</strong></td><td>Opens the templates directory in Windows Explorer</td></tr>
+        <tr><td><strong>Stop</strong></td><td>Quits the application completely. Also available via <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Q</kbd></td></tr>
+      </table>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- HOTKEYS                                                         -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="hotkeys">
+      <h2>Keyboard Hotkeys</h2>
+      <p>Global hotkeys work <strong>anywhere</strong> on your system &mdash; you don't need to click the tray icon. This is especially important when the app is controlling your mouse and you can't reach the tray.</p>
+
+      <div style="display:flex; gap:24px; flex-wrap:wrap; margin:24px 0;">
+        <div style="flex:1; min-width:260px; background:#fff; border-radius:12px; padding:24px; box-shadow:0 2px 12px rgba(0,0,0,.06); text-align:center;">
+          <div style="font-size:.85rem; color:#888; margin-bottom:8px;">Pause / Resume</div>
+          <div class="hotkey-display" style="justify-content:center; font-size:1.1rem;">
+            <kbd>Ctrl</kbd><span class="plus">+</span><kbd>Alt</kbd><span class="plus">+</span><kbd>P</kbd>
+          </div>
+          <p style="margin-top:12px; font-size:.85rem; color:#666;">Toggles between paused and monitoring states. Press once to pause, again to resume.</p>
+        </div>
+        <div style="flex:1; min-width:260px; background:#fff; border-radius:12px; padding:24px; box-shadow:0 2px 12px rgba(0,0,0,.06); text-align:center;">
+          <div style="font-size:.85rem; color:#888; margin-bottom:8px;">Stop &amp; Quit</div>
+          <div class="hotkey-display" style="justify-content:center; font-size:1.1rem;">
+            <kbd>Ctrl</kbd><span class="plus">+</span><kbd>Alt</kbd><span class="plus">+</span><kbd>Q</kbd>
+          </div>
+          <p style="margin-top:12px; font-size:.85rem; color:#666;">Immediately shuts down the application. Use this as an emergency stop.</p>
+        </div>
+      </div>
+
+      <div class="callout callout-danger">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="#e53935"><path d="M10 0C4.5 0 0 4.5 0 10s4.5 10 10 10 10-4.5 10-10S15.5 0 10 0zm1 15H9v-2h2v2zm0-4H9V5h2v6z"/></svg>
+        <p><strong>If nothing else works:</strong> Move your mouse cursor to the absolute top-left corner of your screen (pixel 0,0). This triggers PyAutoGUI's built-in failsafe and forces the app to stop.</p>
+      </div>
+
+      <h3>Emergency Stop Summary</h3>
+      <table>
+        <tr><th>Method</th><th>How</th><th>Speed</th></tr>
+        <tr><td><strong>Hotkey (best)</strong></td><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Q</kbd></td><td>Instant</td></tr>
+        <tr><td><strong>Hotkey (pause)</strong></td><td><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd></td><td>Instant</td></tr>
+        <tr><td><strong>Mouse failsafe</strong></td><td>Move mouse to top-left corner (0,0)</td><td>Next scan cycle</td></tr>
+        <tr><td><strong>Tray menu</strong></td><td>Right-click tray icon &rarr; Stop</td><td>If mouse is free</td></tr>
+        <tr><td><strong>Kill script</strong></td><td>Run <code>stop_clicker.pyw</code></td><td>Manual</td></tr>
+        <tr><td><strong>Task Manager</strong></td><td><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Esc</kbd> &rarr; End Task</td><td>Last resort</td></tr>
+      </table>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- SETTINGS                                                        -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="settings">
+      <h2>Settings Window</h2>
+      <p>Right-click the tray icon &rarr; <strong>Settings...</strong> to open the configuration window.</p>
+
+      <div class="settings-mockup">
+        <div class="settings-titlebar">
+          VSCode Auto-Clicker &mdash; Settings
+          <span style="color:#999;">&times;</span>
+        </div>
+        <div class="settings-body">
+          <div class="settings-row">
+            <label><strong>Mode</strong></label>
+            <div class="radio-group">
+              <label><input type="radio" checked> Auto Click</label>
+              <label><input type="radio"> Auto Confirm</label>
+              <label><input type="radio"> Both</label>
+              <label><input type="radio"> BG Confirm</label>
+            </div>
+          </div>
+          <div class="settings-row">
+            <label>Scan Interval (ms)</label>
+            <input type="number" value="500" style="width:80px;">
+          </div>
+          <div class="settings-row">
+            <label>Confidence Threshold</label>
+            <input type="number" value="0.80" step="0.05" style="width:80px;">
+          </div>
+          <div class="settings-row">
+            <label>Click Cooldown (sec)</label>
+            <input type="number" value="3" style="width:80px;">
+          </div>
+          <div class="settings-row">
+            <label>Confirm Cooldown (sec)</label>
+            <input type="number" value="5" style="width:80px;">
+          </div>
+          <div class="settings-row">
+            <label>Monitor Index</label>
+            <input type="number" value="0" style="width:60px;"> <span style="color:#888; font-size:11px; margin-left:4px;">(0 = all)</span>
+          </div>
+          <div class="settings-row">
+            <label style="display:flex; align-items:center; gap:4px;">
+              <input type="checkbox" checked> Grayscale matching (faster)
+            </label>
+          </div>
+          <div class="settings-row">
+            <label>Log Level</label>
+            <select><option>INFO</option><option>DEBUG</option><option>WARNING</option></select>
+          </div>
+          <div class="settings-row">
+            <label><strong>Scan Region</strong> <span style="color:#888; font-size:10px;">(optional)</span></label>
+          </div>
+          <div class="settings-row" style="padding-left:20px;">
+            <label style="width:auto;">Left:</label><input type="text" style="width:50px;" placeholder="">
+            <label style="width:auto;">Top:</label><input type="text" style="width:50px;" placeholder="">
+            <label style="width:auto;">W:</label><input type="text" style="width:50px;" placeholder="">
+            <label style="width:auto;">H:</label><input type="text" style="width:50px;" placeholder="">
+          </div>
+        </div>
+        <div class="settings-buttons">
+          <button>Save</button>
+          <button>Cancel</button>
+        </div>
+      </div>
+
+      <h3>What Each Setting Does</h3>
+      <table>
+        <tr><th>Setting</th><th>What It Does</th><th>Default</th><th>Recommendation</th></tr>
+        <tr>
+          <td><strong>Mode</strong></td>
+          <td>Which automation mode to use (see <a href="#modes">Modes</a>)</td>
+          <td>Auto Click</td>
+          <td>Depends on your workflow</td>
+        </tr>
+        <tr>
+          <td><strong>Scan Interval</strong></td>
+          <td>How often (in milliseconds) the app takes a screenshot and looks for the button. Lower = faster detection but higher CPU usage.</td>
+          <td>500ms</td>
+          <td>500ms is a good balance. Use 1000ms+ if your computer is slow.</td>
+        </tr>
+        <tr>
+          <td><strong>Confidence Threshold</strong></td>
+          <td>How closely the screen must match your template (0.0 to 1.0). Think of it as a "strictness" slider.</td>
+          <td>0.80</td>
+          <td>Start at 0.80. Lower to 0.65 if it's not detecting. Raise to 0.90 if it's clicking wrong things.</td>
+        </tr>
+        <tr>
+          <td><strong>Click Cooldown</strong></td>
+          <td>Minimum seconds between clicks. Prevents rapid double-clicking.</td>
+          <td>3 sec</td>
+          <td>3-5 sec for most use cases</td>
+        </tr>
+        <tr>
+          <td><strong>Confirm Cooldown</strong></td>
+          <td>Minimum seconds between confirm actions.</td>
+          <td>5 sec</td>
+          <td>5 sec is safe. Lower if prompts come in rapid succession.</td>
+        </tr>
+        <tr>
+          <td><strong>Monitor Index</strong></td>
+          <td>Which monitor to scan. 0 = all monitors, 1 = primary, 2 = secondary, etc.</td>
+          <td>0 (all)</td>
+          <td>Use 0 unless you have multiple monitors and want to only watch one.</td>
+        </tr>
+        <tr>
+          <td><strong>Grayscale</strong></td>
+          <td>Convert images to black &amp; white before matching. Much faster, works for most buttons.</td>
+          <td>On</td>
+          <td>Keep on unless you need to distinguish buttons by color only.</td>
+        </tr>
+        <tr>
+          <td><strong>Log Level</strong></td>
+          <td>How much detail to write to the log file. DEBUG = everything, INFO = actions only, WARNING = problems only.</td>
+          <td>INFO</td>
+          <td>Use INFO normally. Switch to DEBUG for troubleshooting.</td>
+        </tr>
+        <tr>
+          <td><strong>Scan Region</strong></td>
+          <td>Limit scanning to a specific rectangle of pixels. Leave blank to scan the entire screen.</td>
+          <td>Blank (full screen)</td>
+          <td>Use for large/4K displays to improve performance.</td>
+        </tr>
+      </table>
+
+      <div class="callout callout-info">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="#2196f3"><path d="M10 0C4.5 0 0 4.5 0 10s4.5 10 10 10 10-4.5 10-10S15.5 0 10 0zm1 15H9v-2h2v2zm0-4H9V5h2v6z"/></svg>
+        <p>Settings are saved to <code>config.json</code> and take effect immediately &mdash; no restart needed.</p>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- CONFIG FILE                                                     -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="config-file">
+      <h2>Config File Reference</h2>
+      <p>All settings are stored in <code>config.json</code> in the app folder. You can edit this file directly with any text editor (Notepad, VS Code, etc.).</p>
+      <pre><code>{
+    "mode": "auto_click",
+    "template_path": "templates/button.png",
+    "confirm_template_path": "templates/confirm_prompt.png",
+    "confirm_templates_dir": "templates/confirm",
+    "scan_interval_ms": 500,
+    "confidence_threshold": 0.8,
+    "click_cooldown_seconds": 3,
+    "confirm_cooldown_seconds": 5,
+    "monitor_index": 0,
+    "region": null,
+    "grayscale": true,
+    "log_level": "INFO"
+}</code></pre>
+
+      <h4>Fields not in the Settings dialog:</h4>
+      <table>
+        <tr><th>Field</th><th>Description</th></tr>
+        <tr><td><code>template_path</code></td><td>Relative path to the click template image file</td></tr>
+        <tr><td><code>confirm_template_path</code></td><td>Legacy path for a single confirm template (still supported)</td></tr>
+        <tr><td><code>confirm_templates_dir</code></td><td>Folder containing multiple confirm template images</td></tr>
+        <tr><td><code>region</code></td><td>Set to <code>null</code> for full screen, or <code>{"left": 100, "top": 200, "width": 800, "height": 400}</code> for a specific area</td></tr>
+      </table>
+
+      <div class="callout callout-warn">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="#ff9800"><path d="M1 18h18L10 1 1 18zm10-3H9v-2h2v2zm0-4H9V7h2v4z"/></svg>
+        <p><strong>Be careful with JSON syntax!</strong> Missing commas or extra commas will cause the app to fail on startup. Use the Settings dialog if you're not comfortable editing JSON.</p>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- MULTI-MONITOR & REGIONS                                         -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="multi-monitor">
+      <h2>Multi-Monitor &amp; Scan Regions</h2>
+
+      <h3>Monitor Index</h3>
+      <p>If you have multiple monitors, you can tell the app which one to watch:</p>
+      <table>
+        <tr><th>Value</th><th>Behavior</th></tr>
+        <tr><td><code>0</code></td><td>Scans <strong>all monitors</strong> as one big virtual screen (default)</td></tr>
+        <tr><td><code>1</code></td><td>Primary monitor only</td></tr>
+        <tr><td><code>2</code></td><td>Second monitor</td></tr>
+        <tr><td><code>3+</code></td><td>Third monitor, etc.</td></tr>
+      </table>
+
+      <h3>Scan Region</h3>
+      <p>For large or 4K displays, you can restrict scanning to just a small area of the screen for better performance. Set the region in Settings or <code>config.json</code>:</p>
+      <div class="diagram">
+        <svg viewBox="0 0 480 280" style="max-width:420px; font-family:'Segoe UI',sans-serif;">
+          <!-- Screen -->
+          <rect x="10" y="10" width="460" height="240" rx="6" fill="#e8eaf6" stroke="#999" stroke-width="1"/>
+          <text x="240" y="32" text-anchor="middle" fill="#888" font-size="11">Full screen (1920 &times; 1080)</text>
+          <!-- Region -->
+          <rect x="250" y="50" width="200" height="100" rx="4" fill="rgba(76,175,80,.15)" stroke="#4caf50" stroke-width="2" stroke-dasharray="6,3"/>
+          <text x="350" y="105" text-anchor="middle" fill="#4caf50" font-size="12" font-weight="600">Scan Region</text>
+          <!-- Dimension labels -->
+          <text x="250" y="46" fill="#4caf50" font-size="10">left: 250, top: 50</text>
+          <text x="350" y="168" text-anchor="middle" fill="#4caf50" font-size="10">width: 200, height: 100</text>
+          <!-- Rest of screen -->
+          <text x="120" y="140" text-anchor="middle" fill="#aaa" font-size="11">Not scanned</text>
+          <text x="120" y="155" text-anchor="middle" fill="#ccc" font-size="10">(saves CPU)</text>
+        </svg>
+        <div class="diagram-caption">A scan region limits where the app looks, dramatically reducing CPU usage on large screens.</div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- BG CONFIRM DEEP DIVE                                            -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="bg-confirm">
+      <h2>Background Confirm &mdash; Deep Dive</h2>
+      <p>Background Confirm mode is the most advanced mode. It reads terminal text directly from Windows console memory buffers, without needing the terminal window to be visible.</p>
+
+      <h3>How It Works</h3>
+      <div class="diagram">
+        <div class="flow">
+          <div class="flow-box">Find running terminal processes</div>
+          <div class="flow-label">cmd.exe, powershell.exe, pwsh.exe, bash.exe</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box">Attach to each console buffer</div>
+          <div class="flow-label">via Win32 API (AttachConsole)</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box">Read last 15 lines of text</div>
+          <div class="flow-label">ReadConsoleOutputCharacterW</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box decision">Prompt pattern detected?</div>
+          <div class="flow-arrow"></div>
+          <div class="flow-box action">Send keystrokes to console</div>
+          <div class="flow-label">WriteConsoleInputW ("1" + Enter)</div>
+        </div>
+      </div>
+
+      <h3>Detected Patterns</h3>
+      <p>The app looks for these text patterns in the terminal output:</p>
+      <table>
+        <tr><th>Pattern</th><th>Response Sent</th><th>Example</th></tr>
+        <tr><td><code>&gt; 1. Yes</code></td><td><code>1</code> + Enter</td><td>Claude CLI numbered selection</td></tr>
+        <tr><td><code>[y/N]</code></td><td><code>y</code> + Enter</td><td>Standard yes/no prompt</td></tr>
+        <tr><td><code>(y/n)</code></td><td><code>y</code> + Enter</td><td>Alternative yes/no format</td></tr>
+      </table>
+      <p>Additionally, at least one of these <strong>context phrases</strong> must also appear to prevent false positives:</p>
+      <ul style="margin:8px 0 16px 20px; color:#3a3a5a;">
+        <li>"Do you want to proceed"</li>
+        <li>"Do you want to allow"</li>
+        <li>"Do you want to make"</li>
+        <li>"requires approval"</li>
+        <li>"Esc to cancel"</li>
+        <li>"Yes, and don't ask again"</li>
+      </ul>
+
+      <div class="callout callout-warn">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="#ff9800"><path d="M1 18h18L10 1 1 18zm10-3H9v-2h2v2zm0-4H9V7h2v4z"/></svg>
+        <p><strong>Limitation:</strong> Background Confirm works with traditional Windows console hosts (conhost.exe). Some modern terminals like Windows Terminal (wt.exe) use a pseudo-console (ConPTY) that may not be directly readable. If BG Confirm doesn't work, try running Claude CLI in a plain PowerShell or Command Prompt window.</p>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- BUILDING                                                        -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="building">
+      <h2>Building the Standalone .exe</h2>
+      <p>To share the app with others who don't have Python installed, you can build a standalone executable.</p>
+
+      <div class="steps">
+        <div class="step">
+          <h4>Install PyInstaller</h4>
+          <pre><code>pip install pyinstaller</code></pre>
+        </div>
+        <div class="step">
+          <h4>Generate the icon (if needed)</h4>
+          <pre><code>python create_icon.py</code></pre>
+          <p>This creates <code>icon.ico</code> in the project folder.</p>
+        </div>
+        <div class="step">
+          <h4>Run the build script</h4>
+          <pre><code>python build.py</code></pre>
+          <p>This produces a ready-to-share ZIP file at <code>dist/VSCodeAutoClicker.zip</code> containing the .exe, config, icon, and templates folder.</p>
+        </div>
+        <div class="step">
+          <h4>Share the ZIP</h4>
+          <p>Send the ZIP file to anyone. They just need to extract it and double-click the .exe. No Python required.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- TROUBLESHOOTING                                                 -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="troubleshooting">
+      <h2>Troubleshooting</h2>
+
+      <h3>The app isn't detecting my button</h3>
+      <div class="callout callout-tip">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="#4caf50"><path d="M10 0C4.5 0 0 4.5 0 10s4.5 10 10 10 10-4.5 10-10S15.5 0 10 0zm1 15H9v-2h2v2zm0-4H9V5h2v6z"/></svg>
+        <div>
+          <p><strong>Most common fix:</strong> Lower the confidence threshold.</p>
+          <ol style="margin:8px 0 0 12px;">
+            <li>Right-click tray &rarr; Settings</li>
+            <li>Change <strong>Confidence Threshold</strong> from 0.80 to <strong>0.65</strong></li>
+            <li>Click Save</li>
+          </ol>
+          <p style="margin-top:8px;">If that's too sensitive (clicking wrong things), try 0.70 or 0.75.</p>
+        </div>
+      </div>
+      <p><strong>Other causes:</strong></p>
+      <ul style="margin:0 0 16px 20px; color:#3a3a5a;">
+        <li><strong>Display scaling changed</strong> &mdash; If you changed your Windows display scaling (100% &rarr; 125%), recapture your template at the new scale.</li>
+        <li><strong>Dark/Light mode changed</strong> &mdash; Templates from dark mode won't match light mode. Recapture.</li>
+        <li><strong>Button is on wrong monitor</strong> &mdash; Check the Monitor Index setting.</li>
+        <li><strong>Template includes too much background</strong> &mdash; Recapture with a tighter crop.</li>
+      </ul>
+
+      <h3>The app is clicking the wrong thing</h3>
+      <ul style="margin:0 0 16px 20px; color:#3a3a5a;">
+        <li><strong>Raise the confidence threshold</strong> to 0.85 or 0.90</li>
+        <li><strong>Capture a more unique template</strong> &mdash; Include slightly more of the button's unique features</li>
+        <li><strong>Use a scan region</strong> to limit where the app looks</li>
+      </ul>
+
+      <h3>High CPU usage</h3>
+      <ul style="margin:0 0 16px 20px; color:#3a3a5a;">
+        <li>Increase the <strong>Scan Interval</strong> to 1000ms or higher</li>
+        <li>Enable <strong>Grayscale</strong> matching (it's ~3x faster)</li>
+        <li>Set a <strong>Scan Region</strong> instead of scanning the full screen</li>
+        <li>Set <strong>Monitor Index</strong> to a specific monitor instead of 0 (all)</li>
+      </ul>
+
+      <h3>The app won't start</h3>
+      <ul style="margin:0 0 16px 20px; color:#3a3a5a;">
+        <li>Check that <code>config.json</code> is valid JSON (no missing commas, no trailing commas)</li>
+        <li>Check the <code>clicker.log</code> file for error messages</li>
+        <li>If running from source, make sure all dependencies are installed: <code>pip install -r requirements.txt</code></li>
+      </ul>
+
+      <h3>Windows SmartScreen blocks the .exe</h3>
+      <p>Click <strong>"More info"</strong> &rarr; <strong>"Run anyway"</strong>. This is normal for unsigned applications and is safe.</p>
+
+      <h3>Hotkeys don't work</h3>
+      <ul style="margin:0 0 16px 20px; color:#3a3a5a;">
+        <li>Another application may be using the same hotkey combination</li>
+        <li>Try running the app as Administrator</li>
+        <li>Check <code>clicker.log</code> for "Failed to register hotkeys" messages</li>
+      </ul>
+
+      <h3>Background Confirm isn't detecting prompts</h3>
+      <ul style="margin:0 0 16px 20px; color:#3a3a5a;">
+        <li>Make sure Claude CLI is running in <strong>cmd.exe</strong>, <strong>powershell.exe</strong>, <strong>pwsh.exe</strong>, or <strong>bash.exe</strong></li>
+        <li>Windows Terminal (wt.exe) uses ConPTY which may not be supported. Use a plain PowerShell/Command Prompt window instead.</li>
+        <li>Set Log Level to DEBUG and check <code>clicker.log</code> for what text is being read from the console</li>
+      </ul>
+    </section>
+
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <!-- FAQ                                                             -->
+    <!-- ════════════════════════════════════════════════════════════════ -->
+    <section id="faq">
+      <h2>Frequently Asked Questions</h2>
+
+      <h4>Q: Does this work on Mac or Linux?</h4>
+      <p>No. This app is Windows-only because it uses Windows-specific APIs (Win32 Console API, system tray, DPI awareness). It requires Windows 10 or 11.</p>
+
+      <h4>Q: Is this safe to use?</h4>
+      <p>Yes. The app runs entirely locally on your computer. It never connects to the internet, collects data, or sends information anywhere. All it does is look at your screen and move your mouse.</p>
+
+      <h4>Q: Will this trigger anti-cheat or security software?</h4>
+      <p>The app uses standard mouse/keyboard automation (PyAutoGUI) and screen capture (mss). Most security software won't flag it, but some corporate endpoint protection tools might. If you encounter issues, check with your IT department.</p>
+
+      <h4>Q: Can I run multiple instances?</h4>
+      <p>Technically yes, but it's not recommended. Multiple instances would fight over mouse control. Use "Both" mode instead if you need multiple actions.</p>
+
+      <h4>Q: How do I update the app?</h4>
+      <p>Replace the .exe (or source files) with the new version. Your <code>config.json</code> and <code>templates/</code> folder will be preserved as long as you don't delete them.</p>
+
+      <h4>Q: Can I automate something other than VS Code?</h4>
+      <p>Absolutely! The app works with any on-screen button in any application. Just capture a template of whatever button you want clicked. It's been used with VS Code, web browsers, dialog boxes, game UIs, and more.</p>
+
+      <h4>Q: The mouse movement is interfering with my work. What do I do?</h4>
+      <p>Press <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd> to instantly pause the app whenever you need to use your mouse normally. Press it again to resume. Consider using <strong>Background Confirm</strong> mode instead, which doesn't move the mouse at all.</p>
+    </section>
+
+    <!-- ── Footer ── -->
+    <footer style="text-align:center; padding:40px 20px; border-top:1px solid #e0e0e0; color:#999; font-size:.85rem;">
+      <p>VSCode Auto-Clicker &mdash; Setup &amp; User Guide</p>
+      <p style="margin-top:4px;">Built for humans who'd rather not babysit buttons.</p>
+    </footer>
+
+  </div><!-- .content -->
+</div><!-- .main -->
+
+<!-- Scroll to top button -->
+<button class="scroll-top" id="scrollTop" onclick="window.scrollTo({top:0})">&uarr;</button>
+
+<script>
+  // ── Scroll-to-top visibility ──
+  window.addEventListener('scroll', () => {
+    document.getElementById('scrollTop').classList.toggle('visible', window.scrollY > 400);
+  });
+
+  // ── Active nav link tracking ──
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('.sidebar nav a');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        navLinks.forEach(l => l.classList.remove('active'));
+        const active = document.querySelector(`.sidebar nav a[href="#${entry.target.id}"]`);
+        if (active) active.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => observer.observe(s));
+
+  // ── Close mobile sidebar on link click ──
+  navLinks.forEach(link => {
+    link.addEventListener('click', () => {
+      document.querySelector('.sidebar').classList.remove('open');
+    });
+  });
+</script>
+</body>
+</html>

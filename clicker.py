@@ -27,6 +27,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import cv2
+import keyboard
 import mss
 import numpy as np
 import PIL.Image
@@ -416,6 +417,10 @@ def open_settings_dialog(current_cfg: dict, on_save) -> None:
 
 # ── Main app ───────────────────────────────────────────────────────────────
 
+HOTKEY_PAUSE = "ctrl+alt+p"
+HOTKEY_STOP = "ctrl+alt+q"
+
+
 class ClickerApp:
     def __init__(self):
         self.running = True
@@ -424,7 +429,7 @@ class ClickerApp:
         self.tray: pystray.Icon | None = None
         self.click_count = 0
         self.confirm_count = 0
-        self.last_status = "Paused — right-click to resume"
+        self.last_status = "Paused — right-click or Ctrl+Alt+P to resume"
         self._template_lock = threading.Lock()
         self._pending_template_reload = False
         self._pending_mode_change: str | None = None
@@ -545,14 +550,15 @@ class ClickerApp:
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
-                lambda _: "Resume" if self.paused else "Pause",
+                lambda _: ("Resume  (Ctrl+Alt+P)" if self.paused
+                           else "Pause  (Ctrl+Alt+P)"),
                 self.on_toggle_pause,
             ),
             pystray.MenuItem("Settings...", self.on_open_settings),
             pystray.MenuItem("Open Log File", self.on_open_log),
             pystray.MenuItem("Open Templates Folder", self.on_open_templates),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Stop", self.on_stop),
+            pystray.MenuItem("Stop  (Ctrl+Alt+Q)", self.on_stop),
         )
 
     def on_set_mode_click(self, icon, item):
@@ -662,17 +668,22 @@ class ClickerApp:
         if self.tray:
             self.tray.update_menu()
 
-    def on_toggle_pause(self, icon, item):
+    def toggle_pause(self):
+        """Toggle pause/resume — called by both tray menu and hotkey."""
         self.paused = not self.paused
         if self.paused:
             self.last_status = "Paused"
-            icon.icon = create_tray_icon_image("yellow")
             log.info("Paused by user.")
         else:
             self.last_status = "Monitoring..."
-            icon.icon = create_tray_icon_image("green")
             log.info("Resumed by user.")
-        icon.update_menu()
+        if self.tray:
+            self.tray.icon = create_tray_icon_image(
+                "yellow" if self.paused else "green")
+            self.tray.update_menu()
+
+    def on_toggle_pause(self, icon, item):
+        self.toggle_pause()
 
     def on_open_settings(self, icon, item):
         threading.Thread(target=self._settings_flow, daemon=True).start()
@@ -720,6 +731,7 @@ class ClickerApp:
     def on_stop(self, icon=None, item=None):
         log.info("Stopping application...")
         self.running = False
+        self._unregister_hotkeys()
         if self.tray:
             try:
                 self.tray.stop()
@@ -727,6 +739,23 @@ class ClickerApp:
                 pass
         # Force exit to ensure no threads keep the process alive
         os._exit(0)
+
+    def _register_hotkeys(self):
+        """Register global keyboard hotkeys for pause/resume and stop."""
+        try:
+            keyboard.add_hotkey(HOTKEY_PAUSE, self.toggle_pause, suppress=False)
+            keyboard.add_hotkey(HOTKEY_STOP, self.on_stop, suppress=False)
+            log.info("Hotkeys registered: %s = pause/resume, %s = stop",
+                     HOTKEY_PAUSE, HOTKEY_STOP)
+        except Exception as e:
+            log.warning("Failed to register hotkeys: %s", e)
+
+    def _unregister_hotkeys(self):
+        """Remove all registered hotkeys."""
+        try:
+            keyboard.unhook_all_hotkeys()
+        except Exception:
+            pass
 
     def _get_active_template_path_key(self) -> str:
         """Return the config key for the template path based on current mode."""
@@ -958,6 +987,8 @@ class ClickerApp:
                 self.tray.update_menu()
 
     def run(self):
+        self._register_hotkeys()
+
         self.monitor_thread = threading.Thread(target=self.monitor_loop, daemon=True)
         self.monitor_thread.start()
 
