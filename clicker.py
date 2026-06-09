@@ -12,7 +12,6 @@ Modes of operation:
 Runs as a system tray application with right-click menu to control.
 """
 
-import atexit
 import ctypes
 import json
 import logging
@@ -44,6 +43,33 @@ try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
 except Exception:
     pass
+
+# Win32 user32 API for background clicking (no mouse movement / focus steal)
+user32 = ctypes.windll.user32
+
+
+class POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+MK_LBUTTON = 0x0001
+WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
+WM_CHAR = 0x0102
+VK_RETURN = 0x0D
+VK_1 = 0x31
+
+# WindowFromPoint takes POINT by value — on x64, pass as c_int64
+user32.WindowFromPoint.argtypes = [ctypes.c_int64]
+user32.WindowFromPoint.restype = ctypes.c_void_p
+
+user32.ScreenToClient.argtypes = [ctypes.c_void_p, ctypes.POINTER(POINT)]
+user32.ScreenToClient.restype = ctypes.c_bool
+
+user32.PostMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_long]
+user32.PostMessageW.restype = ctypes.c_bool
 
 
 def get_app_dir() -> Path:
@@ -95,6 +121,27 @@ def load_template(path: str, grayscale: bool) -> np.ndarray | None:
     return img
 
 
+def load_click_templates(grayscale: bool) -> list[tuple[str, np.ndarray]]:
+    """Load all click button templates from the templates directory (top-level images only)."""
+    templates = []
+    image_exts = ('.png', '.jpg', '.jpeg', '.bmp', '.webp')
+
+    if TEMPLATES_DIR.exists():
+        for f in sorted(TEMPLATES_DIR.iterdir()):
+            if f.is_file() and f.suffix.lower() in image_exts:
+                flag = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
+                img = cv2.imread(str(f), flag)
+                if img is not None:
+                    log.info("Loaded click template: %s (%dx%d)",
+                             f.name, img.shape[1], img.shape[0])
+                    templates.append((f.name, img))
+                else:
+                    log.warning("Failed to read click template: %s", f)
+
+    log.info("Total click templates loaded: %d", len(templates))
+    return templates
+
+
 def load_confirm_templates(cfg: dict, grayscale: bool) -> list[tuple[str, np.ndarray]]:
     """Load all confirm templates from the confirm directory and legacy single file."""
     templates = []
@@ -138,7 +185,7 @@ def find_any_match(
     for name, tpl in templates:
         result = find_button(screen, tpl, threshold)
         if result:
-            log.debug("Matched confirm template: %s (confidence=%.3f)", name, result[2])
+            log.debug("Matched template: %s (confidence=%.3f)", name, result[2])
             return result
     return None
 
@@ -176,22 +223,52 @@ def find_button(screen: np.ndarray, template: np.ndarray, threshold: float):
 
 
 def click_at(x: int, y: int) -> None:
-    """Move to the target, hover briefly, then click. The delay helps Electron apps."""
-    pyautogui.moveTo(x, y)
-    time.sleep(0.08)
-    pyautogui.click()
-    log.info("Clicked at (%d, %d)", x, y)
+    """Send a background mouse click via PostMessage — no mouse movement or focus change."""
+    # Pack screen coordinates for WindowFromPoint (POINT by value on x64)
+    point_val = ctypes.c_int64((y << 32) | (x & 0xFFFFFFFF))
+    hwnd = user32.WindowFromPoint(point_val)
+
+    if not hwnd:
+        log.warning("No window found at (%d, %d) — skipping click", x, y)
+        return
+
+    # Convert screen coordinates to client (window-local) coordinates
+    pt = POINT(x, y)
+    user32.ScreenToClient(hwnd, ctypes.byref(pt))
+
+    lparam = (pt.y << 16) | (pt.x & 0xFFFF)
+
+    user32.PostMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam)
+    time.sleep(0.08)  # brief delay for Electron apps
+    user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam)
+
+    log.info("Background-clicked at (%d, %d) -> hwnd=0x%X client=(%d, %d)",
+             x, y, hwnd, pt.x, pt.y)
+
+
+def _post_key(hwnd, vk: int, scan: int = 0) -> None:
+    lparam_down = (1 | (scan << 16))
+    lparam_up = (1 | (scan << 16) | (1 << 30) | (1 << 31))
+    user32.PostMessageW(hwnd, WM_KEYDOWN, vk, lparam_down)
+    time.sleep(0.03)
+    user32.PostMessageW(hwnd, WM_KEYUP, vk, lparam_up)
 
 
 def confirm_at(x: int, y: int) -> None:
-    """Click the console area to focus it, then type '1' and press Enter."""
-    pyautogui.moveTo(x, y)
-    time.sleep(0.08)
-    pyautogui.click()
-    time.sleep(0.15)  # brief pause to let the window focus
-    pyautogui.typewrite("1", interval=0.03)
-    pyautogui.press("enter")
-    log.info("Sent confirmation '1' + Enter at (%d, %d)", x, y)
+    """Send '1' + Enter to the window under (x, y) via PostMessage — no mouse movement, no focus steal."""
+    point_val = ctypes.c_int64((y << 32) | (x & 0xFFFFFFFF))
+    hwnd = user32.WindowFromPoint(point_val)
+    if not hwnd:
+        log.warning("No window found at (%d, %d) — skipping confirm", x, y)
+        return
+
+    _post_key(hwnd, VK_1)
+    user32.PostMessageW(hwnd, WM_CHAR, ord("1"), 0)
+    time.sleep(0.05)
+    _post_key(hwnd, VK_RETURN)
+    user32.PostMessageW(hwnd, WM_CHAR, 0x0D, 0)
+
+    log.info("Background-confirmed '1'+Enter at (%d, %d) -> hwnd=0x%X", x, y, hwnd)
 
 
 # ── Tray icon ──────────────────────────────────────────────────────────────
@@ -368,7 +445,7 @@ def open_settings_dialog(current_cfg: dict, on_save) -> None:
     # ── Template paths (read-only info) ──
     tk.Label(win, text="Templates", font=("Segoe UI", 9, "bold")).grid(
         row=10, column=0, columnspan=2, sticky="w", **pad)
-    tk.Label(win, text=f"Click:    {current_cfg.get('template_path', '')}",
+    tk.Label(win, text="Click:    templates/ (multiple templates)",
              fg="gray").grid(row=11, column=0, columnspan=2, sticky="w", padx=10)
     confirm_dir = current_cfg.get('confirm_templates_dir', 'templates/confirm')
     tk.Label(win, text=f"Confirm: {confirm_dir}/ (multiple templates)",
@@ -390,7 +467,6 @@ def open_settings_dialog(current_cfg: dict, on_save) -> None:
 
         new_cfg = {
             "mode": mode_var.get(),
-            "template_path": current_cfg.get("template_path", "templates/button.png"),
             "confirm_template_path": current_cfg.get("confirm_template_path",
                                                      "templates/confirm_prompt.png"),
             "confirm_templates_dir": current_cfg.get("confirm_templates_dir",
@@ -441,13 +517,17 @@ class ClickerApp:
         cfg = load_config()
         self.mode = cfg.get("mode", "auto_click")
 
-    def _get_template_path(self) -> Path:
-        cfg = load_config()
-        return APP_DIR / cfg["template_path"]
-
     def _get_confirm_template_path(self) -> Path:
         cfg = load_config()
         return APP_DIR / cfg.get("confirm_template_path", "templates/confirm_prompt.png")
+
+    def _count_click_templates(self) -> int:
+        """Count available click templates (top-level images in templates dir)."""
+        image_exts = ('.png', '.jpg', '.jpeg', '.bmp', '.webp')
+        if TEMPLATES_DIR.exists():
+            return len([f for f in TEMPLATES_DIR.iterdir()
+                       if f.is_file() and f.suffix.lower() in image_exts])
+        return 0
 
     def _count_confirm_templates(self) -> int:
         """Count available confirm templates across directory and legacy path."""
@@ -464,8 +544,8 @@ class ClickerApp:
         return count
 
     def build_menu(self) -> pystray.Menu:
-        template_path = self._get_template_path()
-        has_template = template_path.exists()
+        click_count_templates = self._count_click_templates()
+        has_template = click_count_templates > 0
         confirm_count = self._count_confirm_templates()
         has_confirm_template = confirm_count > 0
 
@@ -535,7 +615,9 @@ class ClickerApp:
                 visible=lambda _: self.mode in ("auto_confirm", "both"),
             ),
             pystray.MenuItem(
-                lambda _: f"Click Template: {'OK' if has_template else 'NOT SET'}",
+                lambda _: (f"Click Templates: {click_count_templates} loaded"
+                           if click_count_templates > 0
+                           else "Click Templates: none — add images to templates/"),
                 None,
                 enabled=False,
                 visible=lambda _: self.mode in ("auto_click", "both"),
@@ -620,20 +702,21 @@ class ClickerApp:
         # Pick destination based on target mode
         if target_mode == "auto_confirm":
             # Add to confirm templates directory (multiple templates supported)
-            confirm_dir = APP_DIR / cfg.get("confirm_templates_dir", "templates/confirm")
-            confirm_dir.mkdir(parents=True, exist_ok=True)
-            dest = confirm_dir / chosen_path.name
-            # Avoid overwriting existing templates
-            if dest.exists():
-                stem = chosen_path.stem
-                suffix = chosen_path.suffix
-                i = 1
-                while dest.exists():
-                    dest = confirm_dir / f"{stem}_{i}{suffix}"
-                    i += 1
+            dest_dir = APP_DIR / cfg.get("confirm_templates_dir", "templates/confirm")
         else:
-            dest = APP_DIR / cfg["template_path"]
-            dest.parent.mkdir(parents=True, exist_ok=True)
+            # Add to click templates directory (multiple templates supported)
+            dest_dir = TEMPLATES_DIR
+
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / chosen_path.name
+        # Avoid overwriting existing templates
+        if dest.exists():
+            stem = chosen_path.stem
+            suffix = chosen_path.suffix
+            i = 1
+            while dest.exists():
+                dest = dest_dir / f"{stem}_{i}{suffix}"
+                i += 1
 
         try:
             shutil.copy2(chosen_path, dest)
@@ -658,10 +741,12 @@ class ClickerApp:
                 "Tip: Capture just the '> 1. Yes' line for best results."
             )
         else:
+            total = self._count_click_templates()
             show_info(
-                "Template Updated",
-                f"Click template image set to:\n{chosen_path.name}\n\n"
-                f"Size: {PIL.Image.open(dest).size[0]}x{PIL.Image.open(dest).size[1]} pixels\n\n"
+                "Click Template Added",
+                f"Added click template:\n{dest.name}\n\n"
+                f"Size: {PIL.Image.open(dest).size[0]}x{PIL.Image.open(dest).size[1]} pixels\n"
+                f"Total click templates: {total}\n\n"
                 "The monitor will use the new template immediately."
             )
 
@@ -719,26 +804,24 @@ class ClickerApp:
         os.startfile(str(LOG_PATH))
 
     def on_open_templates(self, icon, item):
-        if self.mode == "auto_confirm":
-            cfg = load_config()
-            confirm_dir = APP_DIR / cfg.get("confirm_templates_dir", "templates/confirm")
-            confirm_dir.mkdir(parents=True, exist_ok=True)
-            os.startfile(str(confirm_dir))
-        else:
-            TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
-            os.startfile(str(TEMPLATES_DIR))
+        TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+        os.startfile(str(TEMPLATES_DIR))
 
     def on_stop(self, icon=None, item=None):
         log.info("Stopping application...")
         self.running = False
         self._unregister_hotkeys()
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            self.monitor_thread.join(timeout=2.0)
         if self.tray:
             try:
                 self.tray.stop()
             except Exception:
                 pass
-        # Force exit to ensure no threads keep the process alive
-        os._exit(0)
+        if self.monitor_thread and self.monitor_thread.is_alive():
+            log.warning("Monitor thread did not exit — forcing process exit.")
+            os._exit(0)
+        sys.exit(0)
 
     def _register_hotkeys(self):
         """Register global keyboard hotkeys for pause/resume and stop."""
@@ -751,130 +834,146 @@ class ClickerApp:
             log.warning("Failed to register hotkeys: %s", e)
 
     def _unregister_hotkeys(self):
-        """Remove all registered hotkeys."""
+        """Fully tear down keyboard hooks — not just hotkeys."""
         try:
-            keyboard.unhook_all_hotkeys()
+            keyboard.unhook_all()
         except Exception:
             pass
 
-    def _get_active_template_path_key(self) -> str:
-        """Return the config key for the template path based on current mode."""
-        if self.mode == "auto_confirm":
-            return "confirm_template_path"
-        return "template_path"
-
     def monitor_loop(self):
+        """Outer supervisor — restarts the inner loop with backoff if it crashes."""
+        backoff = 1.0
+        while self.running:
+            started = time.time()
+            try:
+                self._monitor_loop_inner()
+                return  # clean exit (self.running went False)
+            except Exception:
+                log.exception("Monitor loop crashed — restarting in %.1fs", backoff)
+                self.last_status = f"Error — auto-restarting in {int(backoff)}s"
+                if self.tray:
+                    try:
+                        self.tray.icon = create_tray_icon_image("red")
+                        self.tray.update_menu()
+                    except Exception:
+                        pass
+                time.sleep(backoff)
+                # Reset backoff after a long clean run; otherwise escalate
+                if time.time() - started > 60:
+                    backoff = 1.0
+                else:
+                    backoff = min(backoff * 2, 30.0)
+
+    def _monitor_loop_inner(self):
         """Main screen monitoring loop — runs in a background thread."""
-        try:
-            cfg = load_config()
-            logging.getLogger().setLevel(cfg.get("log_level", "INFO"))
+        cfg = load_config()
+        logging.getLogger().setLevel(cfg.get("log_level", "INFO"))
 
-            grayscale = cfg.get("grayscale", True)
-            if self.mode in ("auto_confirm", "both"):
-                confirm_templates = load_confirm_templates(cfg, grayscale)
-            else:
-                confirm_templates = []
-            if self.mode in ("auto_click", "both"):
-                template = load_template(cfg["template_path"], grayscale)
-            else:
-                template = None
-            threshold = cfg["confidence_threshold"]
-            interval = cfg["scan_interval_ms"] / 1000.0
-            click_cooldown = cfg["click_cooldown_seconds"]
-            confirm_cooldown = cfg.get("confirm_cooldown_seconds", 5)
-            monitor_index = cfg.get("monitor_index", 0)
-            region = cfg.get("region")
+        grayscale = cfg.get("grayscale", True)
+        if self.mode in ("auto_confirm", "both"):
+            confirm_templates = load_confirm_templates(cfg, grayscale)
+        else:
+            confirm_templates = []
+        if self.mode in ("auto_click", "both"):
+            click_templates = load_click_templates(grayscale)
+        else:
+            click_templates = []
+        threshold = cfg["confidence_threshold"]
+        interval = cfg["scan_interval_ms"] / 1000.0
+        click_cooldown = cfg["click_cooldown_seconds"]
+        confirm_cooldown = cfg.get("confirm_cooldown_seconds", 5)
+        monitor_index = cfg.get("monitor_index", 0)
+        region = cfg.get("region")
 
-            pyautogui.FAILSAFE = True
-            pyautogui.PAUSE = 0.05
+        pyautogui.FAILSAFE = True
+        pyautogui.PAUSE = 0.05
 
-            last_click_time = 0.0
-            last_confirm_time = 0.0
+        last_click_time = 0.0
+        last_confirm_time = 0.0
 
-            mode_label = {"auto_click": "Auto Click", "auto_confirm": "Auto Confirm",
+        mode_label = {"auto_click": "Auto Click", "auto_confirm": "Auto Confirm",
                       "both": "Both", "bg_confirm": "BG Confirm",
                       }.get(self.mode, self.mode)
-            log.info("=== VSCode Button %s ===", mode_label)
-            log.info("Mode: %s | Threshold: %.2f | Interval: %dms",
-                     self.mode, threshold, cfg["scan_interval_ms"])
+        log.info("=== VSCode Button %s ===", mode_label)
+        log.info("Mode: %s | Threshold: %.2f | Interval: %dms",
+                 self.mode, threshold, cfg["scan_interval_ms"])
 
-            if self.mode == "bg_confirm":
-                has_templates = True  # No templates needed
-            elif self.mode == "both":
-                has_templates = template is not None or len(confirm_templates) > 0
-            elif self.mode == "auto_confirm":
-                has_templates = len(confirm_templates) > 0
-            else:
-                has_templates = template is not None
-            if not has_templates:
-                self.last_status = "No template — set one via tray menu"
-                if self.tray:
-                    self.tray.icon = create_tray_icon_image("yellow")
-                    self.tray.update_menu()
-            else:
-                self.last_status = "Monitoring..."
-                if self.tray:
-                    self.tray.update_menu()
+        if self.mode == "bg_confirm":
+            has_templates = True  # No templates needed
+        elif self.mode == "both":
+            has_templates = len(click_templates) > 0 or len(confirm_templates) > 0
+        elif self.mode == "auto_confirm":
+            has_templates = len(confirm_templates) > 0
+        else:
+            has_templates = len(click_templates) > 0
+        if not has_templates:
+            self.last_status = "No template — set one via tray menu"
+            if self.tray:
+                self.tray.icon = create_tray_icon_image("yellow")
+                self.tray.update_menu()
+        else:
+            self.last_status = "Monitoring..."
+            if self.tray:
+                self.tray.update_menu()
 
-            with mss.mss() as sct:
-                while self.running:
-                    # Check for template reload or mode change
-                    with self._template_lock:
-                        if self._pending_template_reload:
-                            self._pending_template_reload = False
-                            if self._pending_mode_change:
-                                self._pending_mode_change = None
-                            cfg = load_config()
-                            if self.mode in ("auto_confirm", "both"):
-                                confirm_templates = load_confirm_templates(
-                                    cfg, grayscale)
-                            else:
-                                confirm_templates = []
-                            if self.mode in ("auto_click", "both"):
-                                new_tpl = load_template(
-                                    cfg.get("template_path", "templates/button.png"),
-                                    grayscale,
-                                )
-                                template = new_tpl
-                            else:
-                                template = None
+        with mss.mss() as sct:
+            while self.running:
+                # Check for template reload or mode change
+                with self._template_lock:
+                    if self._pending_template_reload:
+                        self._pending_template_reload = False
+                        if self._pending_mode_change:
+                            self._pending_mode_change = None
+                        cfg = load_config()
+                        logging.getLogger().setLevel(cfg.get("log_level", "INFO"))
+                        grayscale = cfg.get("grayscale", True)
+                        if self.mode in ("auto_confirm", "both"):
+                            confirm_templates = load_confirm_templates(
+                                cfg, grayscale)
+                        else:
+                            confirm_templates = []
+                        if self.mode in ("auto_click", "both"):
+                            click_templates = load_click_templates(grayscale)
+                        else:
+                            click_templates = []
 
-                            if self.mode == "bg_confirm":
-                                has_templates = True
-                            elif self.mode == "both":
-                                has_templates = (template is not None
-                                                 or len(confirm_templates) > 0)
-                            elif self.mode == "auto_confirm":
-                                has_templates = len(confirm_templates) > 0
-                            else:
-                                has_templates = template is not None
+                        if self.mode == "bg_confirm":
+                            has_templates = True
+                        elif self.mode == "both":
+                            has_templates = (len(click_templates) > 0
+                                             or len(confirm_templates) > 0)
+                        elif self.mode == "auto_confirm":
+                            has_templates = len(confirm_templates) > 0
+                        else:
+                            has_templates = len(click_templates) > 0
 
-                            if has_templates:
-                                self.last_status = "Monitoring..."
-                                if self.tray:
-                                    self.tray.icon = create_tray_icon_image("green")
-                                    self.tray.update_menu()
-                            else:
-                                self.last_status = "No template — set one via tray menu"
-                                if self.tray:
-                                    self.tray.icon = create_tray_icon_image("yellow")
-                                    self.tray.update_menu()
+                        if has_templates:
+                            self.last_status = "Monitoring..."
+                            if self.tray:
+                                self.tray.icon = create_tray_icon_image("green")
+                                self.tray.update_menu()
+                        else:
+                            self.last_status = "No template — set one via tray menu"
+                            if self.tray:
+                                self.tray.icon = create_tray_icon_image("yellow")
+                                self.tray.update_menu()
 
-                            # Reload config values that may have changed
-                            threshold = cfg["confidence_threshold"]
-                            interval = cfg["scan_interval_ms"] / 1000.0
-                            click_cooldown = cfg["click_cooldown_seconds"]
-                            confirm_cooldown = cfg.get("confirm_cooldown_seconds", 5)
-                            monitor_index = cfg.get("monitor_index", 0)
-                            region = cfg.get("region")
+                        # Reload config values that may have changed
+                        threshold = cfg["confidence_threshold"]
+                        interval = cfg["scan_interval_ms"] / 1000.0
+                        click_cooldown = cfg["click_cooldown_seconds"]
+                        confirm_cooldown = cfg.get("confirm_cooldown_seconds", 5)
+                        monitor_index = cfg.get("monitor_index", 0)
+                        region = cfg.get("region")
 
-                    if self.paused or not has_templates:
-                        time.sleep(0.25)
-                        continue
+                if self.paused or not has_templates:
+                    time.sleep(0.25)
+                    continue
 
-                    start = time.perf_counter()
-                    acted = False
+                start = time.perf_counter()
+                acted = False
 
+                try:
                     # ── Background Confirm mode ──
                     if self.mode == "bg_confirm":
                         now = time.time()
@@ -882,14 +981,12 @@ class ClickerApp:
                             try:
                                 lines, cursor_y = read_console_buffer(
                                     pid, num_lines=15)
-                                # Skip if cursor hasn't moved since last confirm
                                 prev_y = self._bg_cursor_positions.get(pid, -1)
                                 if cursor_y <= prev_y:
                                     continue
                                 match = detect_prompt(lines)
                                 if not match:
                                     continue
-                                # Per-process cooldown
                                 last_t = self._bg_cooldowns.get(pid, 0.0)
                                 if now - last_t < confirm_cooldown:
                                     continue
@@ -904,7 +1001,7 @@ class ClickerApp:
                                          " (pattern: %s)", response, pid,
                                          pattern)
                                 acted = True
-                                break  # One confirm per cycle
+                                break
                             except OSError as exc:
                                 log.debug("PID %d: %s", pid, exc)
                     else:
@@ -912,19 +1009,17 @@ class ClickerApp:
                         screen, mon = grab_screen(
                             sct, monitor_index, region, grayscale)
 
-                        # Check for confirm match (higher priority)
                         confirm_match = None
                         if (self.mode in ("auto_confirm", "both")
                                 and confirm_templates):
                             confirm_match = find_any_match(
                                 screen, confirm_templates, threshold)
 
-                        # Check for click match
                         click_match = None
                         if (self.mode in ("auto_click", "both")
-                                and template is not None):
-                            click_match = find_button(
-                                screen, template, threshold)
+                                and click_templates):
+                            click_match = find_any_match(
+                                screen, click_templates, threshold)
 
                         now = time.time()
 
@@ -968,23 +1063,35 @@ class ClickerApp:
                                 log.debug("Click match but in cooldown"
                                           " (%.1fs left)", remaining)
 
-                    if acted and self.tray:
+                except pyautogui.FailSafeException:
+                    log.warning("FAILSAFE triggered — pausing. Move mouse away and Resume.")
+                    self.paused = True
+                    self.last_status = "Paused by FAILSAFE — Resume via tray"
+                    if self.tray:
+                        try:
+                            self.tray.icon = create_tray_icon_image("yellow")
+                            self.tray.update_menu()
+                        except Exception:
+                            pass
+                    continue
+                except Exception:
+                    log.exception("Iteration failed — continuing")
+                    time.sleep(1.0)
+                    continue
+
+                if acted and self.tray:
+                    try:
                         self.tray.icon = create_tray_icon_image("blue")
                         self.tray.update_menu()
                         time.sleep(0.3)
                         self.tray.icon = create_tray_icon_image("green")
+                    except Exception:
+                        pass
 
-                    elapsed = time.perf_counter() - start
-                    sleep_time = max(0, interval - elapsed)
-                    if sleep_time > 0:
-                        time.sleep(sleep_time)
-
-        except Exception:
-            log.exception("Monitor loop crashed")
-            self.last_status = "Error — check log"
-            if self.tray:
-                self.tray.icon = create_tray_icon_image("red")
-                self.tray.update_menu()
+                elapsed = time.perf_counter() - start
+                sleep_time = max(0, interval - elapsed)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
 
     def run(self):
         self._register_hotkeys()
@@ -1001,7 +1108,27 @@ class ClickerApp:
         self.tray.run()
 
 
+_singleton_mutex = None
+
+
+def _acquire_singleton() -> None:
+    """Refuse to start a second instance — prevents hotkey/hook conflicts."""
+    global _singleton_mutex
+    kernel32 = ctypes.windll.kernel32
+    kernel32.CreateMutexW.restype = ctypes.c_void_p
+    _singleton_mutex = kernel32.CreateMutexW(None, False, "Local\\VSCodeAutoClicker-Singleton")
+    if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        ctypes.windll.user32.MessageBoxW(
+            0,
+            "VSCode Auto-Clicker is already running (check the system tray).",
+            "Already Running",
+            0x40,
+        )
+        sys.exit(0)
+
+
 if __name__ == "__main__":
+    _acquire_singleton()
     app = ClickerApp()
 
     # Ensure clean shutdown on kill signals (Ctrl+C, taskkill, etc.)
@@ -1013,8 +1140,5 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, _shutdown_handler)
     if sys.platform == "win32":
         signal.signal(signal.SIGBREAK, _shutdown_handler)
-
-    # Safety net: force kill on exit if threads are stuck
-    atexit.register(lambda: os._exit(0))
 
     app.run()
